@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.2"
+local VERSION      = "3.3"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -475,24 +475,26 @@ local function drawDashboard()
     if m.powerOn then anyOn = true; break end
   end
 
-  hline(H - 3)
-  local bw = math.floor((W - 6) / 6)
-  addButton(2,          H-2, 1+bw,    H-2, "DASHBOARD",
+  hline(H - 4)
+  local bw4 = math.floor((W - 2) / 4)
+  addButton(1,          H-3, bw4,      H-3, "DASHBOARD",
     colors.black, colors.yellow,  function() currentScreen="dashboard" end)
-  addButton(2+bw,       H-2, 1+bw*2,  H-2,
+  addButton(bw4+1,      H-3, bw4*2,   H-3,
     "ALERTS" .. (#alerts>0 and " ("..#alerts..")" or ""),
     colors.black, #alerts>0 and colors.orange or colors.gray,
     function() currentScreen="alerts" end)
-  addButton(2+bw*2,     H-2, 1+bw*3,  H-2, "SET RATE",
+  addButton(bw4*2+1,    H-3, bw4*3,   H-3, "SET RATE",
     colors.black, colors.cyan,    function() currentScreen="rate" end)
-  addButton(2+bw*3,     H-2, 1+bw*4,  H-2, "UPD METERS",
+  addButton(bw4*3+1,    H-3, W,       H-3, "UPD METERS",
     colors.black, colors.purple,  function()
       confirm({"Push update to ALL meters?", "They will reboot immediately."}, function()
         sendBroadcast("update")
         addAlert("Remote update sent to all meters")
       end, "dashboard")
     end)
-  addButton(2+bw*4,     H-2, 1+bw*5,   H-2, anyOn and "CUT ALL" or "RESTORE ALL",
+
+  local bw3 = math.floor((W - 2) / 3)
+  addButton(1,          H-2, bw3,      H-2, anyOn and "CUT ALL" or "RESTORE ALL",
     colors.white, anyOn and colors.red or colors.green,
     function()
       if anyOn then
@@ -505,7 +507,41 @@ local function drawDashboard()
         currentScreen = "alerts"
       end
     end)
-  addButton(2+bw*5,     H-2, W,        H-2, "LOCK",
+  addButton(bw3+1,      H-2, bw3*2,   H-2, "CHG PIN",
+    colors.black, colors.gray, function()
+      rateInput = ""
+      term.setTextColor(colors.yellow)
+      print("\n-- Change Admin PIN --")
+      term.setTextColor(colors.lightGray); term.write("Current PIN: ")
+      term.setTextColor(colors.white)
+      local cur = io.read()
+      if cur ~= ADMIN_PIN then
+        term.setTextColor(colors.red); print("Incorrect PIN.")
+        term.setTextColor(colors.white); return
+      end
+      local new1
+      while true do
+        term.setTextColor(colors.lightGray); term.write("New PIN (4-8 digits): ")
+        term.setTextColor(colors.white)
+        new1 = io.read()
+        if new1:match("^%d+$") and #new1 >= 4 and #new1 <= 8 then break end
+        term.setTextColor(colors.red); print("Must be 4-8 digits.")
+        term.setTextColor(colors.white)
+      end
+      while true do
+        term.setTextColor(colors.lightGray); term.write("Confirm new PIN: ")
+        term.setTextColor(colors.white)
+        local new2 = io.read()
+        if new2 == new1 then break end
+        term.setTextColor(colors.red); print("PINs don't match. Try again.")
+        term.setTextColor(colors.white)
+      end
+      savePin(new1)
+      term.setTextColor(colors.lime); print("PIN updated.")
+      term.setTextColor(colors.white)
+      currentScreen = "dashboard"
+    end)
+  addButton(bw3*2+1,    H-2, W,        H-2, "LOCK",
     colors.white, colors.gray, function()
       pinUnlocked = false; pinInput = ""; pinError = false
     end)
