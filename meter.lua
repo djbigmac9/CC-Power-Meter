@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v2.9
+--  BeyondSMP Electric Meter v3.5
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.5"
+local VERSION      = "3.6"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -159,6 +159,7 @@ local data = {
   registered    = false,
   isProducer    = false,
   ratePerFE     = RATE_PER_FE,
+  cap           = MAX_FLOW,
 }
 
 local function saveData()
@@ -177,6 +178,7 @@ local function loadData()
       RATE_PER_FE           = data.ratePerFE     or RATE_PER_FE
       data.totalExported    = data.totalExported  or 0
       data.isProducer       = data.isProducer     or false
+      data.cap              = data.cap            or MAX_FLOW
     end
   end
 end
@@ -188,7 +190,7 @@ local function setPower(state)
     if exportDetector then exportDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
     if importDetector then importDetector.setTransferRateLimit(0) end  -- always blocked
   else
-    if importDetector then importDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
+    if importDetector then importDetector.setTransferRateLimit(state and (data.cap or MAX_FLOW) or 0) end
     if exportDetector then exportDetector.setTransferRateLimit(0) end  -- always blocked
   end
   saveData()
@@ -237,6 +239,13 @@ local function handleCommand(msg)
     doUpdate()
 
   elseif msg.cmd == "setplan" and type(msg.value) == "string" then
+    if not data.isProducer and data.billingModel == "periodic" and data.periodUsage > 0 then
+      local charge = data.periodUsage * data.ratePerFE
+      data.balance     = data.balance - charge
+      data.periodUsage = 0
+      ticksSincePeriod = 0
+      if data.balance <= 0 and data.powerOn then setPower(false) end
+    end
     data.billingModel = msg.value
     saveData()
 
@@ -245,7 +254,11 @@ local function handleCommand(msg)
     saveData()
 
   elseif msg.cmd == "setcap" and type(msg.value) == "number" then
-    if importDetector then importDetector.setTransferRateLimit(msg.value) end
+    data.cap = msg.value
+    if importDetector and not data.isProducer and data.powerOn then
+      importDetector.setTransferRateLimit(data.cap)
+    end
+    saveData()
 
   elseif msg.cmd == "setbalance" and type(msg.value) == "number" then
     data.balance = msg.value
@@ -837,7 +850,7 @@ monitor.clear()
 -- Apply correct detector limits on boot based on saved state
 if importDetector then
   importDetector.setTransferRateLimit(
-    data.isProducer and 0 or (data.powerOn and MAX_FLOW or 0))
+    data.isProducer and 0 or (data.powerOn and (data.cap or MAX_FLOW) or 0))
 end
 if exportDetector then
   exportDetector.setTransferRateLimit(
