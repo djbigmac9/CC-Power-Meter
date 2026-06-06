@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.3"
+local VERSION      = "3.4"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -250,8 +250,7 @@ local function handleCommand(msg)
   elseif msg.cmd == "setbalance" and type(msg.value) == "number" then
     data.balance = msg.value
     if not data.isProducer then
-      if data.balance > 0 and not data.powerOn then setPower(true) end
-      if data.balance <= 0 and data.powerOn     then setPower(false) end
+      setPower(data.balance > 0)
     end
     saveData()
 
