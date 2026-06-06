@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.6"
+local VERSION      = "2.8"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -179,6 +179,22 @@ local function checkClick(x, y)
   return false
 end
 
+-- ── PIN lock ─────────────────────────────────────────────────
+local ADMIN_PIN     = "1234"   -- change this
+local LOCK_TIMEOUT  = 300      -- seconds of inactivity before auto-lock
+local pinUnlocked   = false
+local pinInput      = ""
+local pinError      = false
+local lastActivity  = 0
+
+local function touchActivity() lastActivity = os.clock() end
+
+local function checkAutoLock()
+  if pinUnlocked and os.clock() - lastActivity > LOCK_TIMEOUT then
+    pinUnlocked = false; pinInput = ""; pinError = false
+  end
+end
+
 -- ── State ────────────────────────────────────────────────────
 local meters        = {}
 local alerts        = {}
@@ -230,6 +246,77 @@ local function whisper(player, msg)
       chatBox.sendMessageToPlayer(msg, player, "Beyond Energy")
     end)
   end
+end
+
+-- ── PIN screen ───────────────────────────────────────────────
+local function drawPinScreen()
+  cls(); clearButtons(); refreshSize()
+
+  writeAt(1, 1, string.rep(" ", W), colors.black, colors.yellow)
+  centreText(1, " BEYOND ENERGY - ADMIN ACCESS ", colors.black, colors.yellow)
+  hline(2)
+  centreText(4, "Enter Admin PIN", colors.lightGray)
+
+  -- Show entered digits as dots
+  local dots = string.rep("* ", #pinInput)
+  centreText(6, dots ~= "" and dots or "- - - -", #pinInput > 0 and colors.white or colors.gray)
+
+  if pinError then
+    centreText(7, "Incorrect PIN", colors.red)
+  end
+
+  hline(8)
+
+  -- Keypad layout: 1 2 3 / 4 5 6 / 7 8 9 / DEL 0 OK
+  local kw   = math.floor((W - 8) / 3)
+  local kh   = 2
+  local kx1  = 3
+  local kx2  = kx1 + kw + 1
+  local kx3  = kx2 + kw + 1
+  local ky   = 10
+
+  local function numBtn(x, y, label, digit)
+    addButton(x, y, x + kw - 1, y, label,
+      colors.black, colors.lightGray, function()
+        if #pinInput < 8 then
+          pinInput = pinInput .. digit
+          pinError = false
+        end
+      end)
+    local pad = math.floor((kw - #label) / 2)
+    writeAt(x, y, string.rep(" ", kw), colors.black, colors.lightGray)
+    writeAt(x + pad, y, label, colors.black, colors.lightGray)
+  end
+
+  numBtn(kx1, ky,   "1", "1"); numBtn(kx2, ky,   "2", "2"); numBtn(kx3, ky,   "3", "3")
+  numBtn(kx1, ky+2, "4", "4"); numBtn(kx2, ky+2, "5", "5"); numBtn(kx3, ky+2, "6", "6")
+  numBtn(kx1, ky+4, "7", "7"); numBtn(kx2, ky+4, "8", "8"); numBtn(kx3, ky+4, "9", "9")
+
+  -- DEL
+  addButton(kx1, ky+6, kx1 + kw - 1, ky+6, "DEL", colors.white, colors.red, function()
+    if #pinInput > 0 then pinInput = pinInput:sub(1, -2); pinError = false end
+  end)
+  writeAt(kx1, ky+6, string.rep(" ", kw), colors.white, colors.red)
+  writeAt(kx1 + math.floor((kw-3)/2), ky+6, "DEL", colors.white, colors.red)
+
+  -- 0
+  numBtn(kx2, ky+6, "0", "0")
+
+  -- OK
+  addButton(kx3, ky+6, kx3 + kw - 1, ky+6, "OK", colors.black, colors.lime, function()
+    if pinInput == ADMIN_PIN then
+      pinUnlocked = true; pinInput = ""; pinError = false
+      touchActivity()
+    else
+      pinError = true; pinInput = ""
+    end
+  end)
+  writeAt(kx3, ky+6, string.rep(" ", kw), colors.black, colors.lime)
+  writeAt(kx3 + math.floor((kw-2)/2), ky+6, "OK", colors.black, colors.lime)
+
+  hline(H-1)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
+  drawButtons()
 end
 
 -- ── Dashboard ────────────────────────────────────────────────
@@ -342,7 +429,7 @@ local function drawDashboard()
   end
 
   hline(H - 3)
-  local bw = math.floor((W - 6) / 5)
+  local bw = math.floor((W - 6) / 6)
   addButton(2,          H-2, 1+bw,    H-2, "DASHBOARD",
     colors.black, colors.yellow,  function() currentScreen="dashboard" end)
   addButton(2+bw,       H-2, 1+bw*2,  H-2,
@@ -356,7 +443,7 @@ local function drawDashboard()
       sendBroadcast("update")
       addAlert("Remote update sent to all meters")
     end)
-  addButton(2+bw*4,     H-2, W,        H-2, anyOn and "CUT ALL" or "RESTORE ALL",
+  addButton(2+bw*4,     H-2, 1+bw*5,   H-2, anyOn and "CUT ALL" or "RESTORE ALL",
     colors.white, anyOn and colors.red or colors.green,
     function()
       if anyOn then
@@ -365,6 +452,10 @@ local function drawDashboard()
         sendBroadcast("restore"); addAlert("ADMIN: All meters restored")
       end
       currentScreen = "alerts"
+    end)
+  addButton(2+bw*5,     H-2, W,        H-2, "LOCK",
+    colors.white, colors.gray, function()
+      pinUnlocked = false; pinInput = ""; pinError = false
     end)
 
   hline(H-1)
@@ -594,7 +685,9 @@ local function mainLoop()
       backgroundUpdateCheck()
     end
     refreshSize()
-    if     currentScreen == "dashboard" then drawDashboard()
+      checkAutoLock()
+    if not pinUnlocked then drawPinScreen()
+    elseif currentScreen == "dashboard" then drawDashboard()
     elseif currentScreen == "customer"  then drawCustomerScreen()
     elseif currentScreen == "rate"      then
       drawRateScreen()
@@ -618,7 +711,7 @@ local function mainLoop()
       local e  = ev[1]
 
       if e == "monitor_touch" then
-        checkClick(ev[3], ev[4]); break
+        touchActivity(); checkClick(ev[3], ev[4]); break
 
       elseif e == "modem_message" then
         local msg = ev[5]
