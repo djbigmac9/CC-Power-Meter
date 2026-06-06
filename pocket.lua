@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.10"
+local VERSION      = "2.11"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -536,7 +536,7 @@ local function drawDetail()
       end, "detail")
     end)
 
-  btn(1,    15 + o, W,    "UPDATE METER",
+  btn(1,    15 + o, bw,   "UPDATE",
     colors.black, colors.purple, function()
       confirm({"Update "..(m.player or tostring(selected)).."?", "Meter will reboot."}, function()
         sendCmd(selected, "update")
@@ -544,7 +544,7 @@ local function drawDetail()
       end, "detail")
     end)
 
-  btn(1,    16 + o, W,    "RENAME",
+  btn(bw+1, 15 + o, W,   "RENAME",
     colors.black, colors.orange, function()
       cls()
       at(1, 1, "RENAME METER",   colors.orange)
@@ -564,7 +564,7 @@ local function drawDetail()
       end
     end)
 
-  btn(1,    17 + o, W,    "CHG PLAN",
+  btn(1,    16 + o, bw,   "CHG PLAN",
     colors.black, colors.yellow, function()
       local newPlan  = (m.plan == "payg") and "periodic" or "payg"
       local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
@@ -576,8 +576,8 @@ local function drawDetail()
       end, "detail")
     end)
 
-  btn(1,    18 + o, W,
-    m.isProducer and "TYPE: PRODUCER -> CONSUMER" or "TYPE: CONSUMER -> PRODUCER",
+  btn(bw+1, 16 + o, W,
+    m.isProducer and "-> CONSUMER" or "-> PRODUCER",
     colors.black, colors.orange, function()
       local newType  = not m.isProducer
       local newLabel = newType and "Producer" or "Consumer"
