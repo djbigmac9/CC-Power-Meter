@@ -96,7 +96,8 @@ local TEMP_TOP_UP     = 200
 local MAX_FLOW        = 2147483647
 local STATUS_CH       = 1001
 local COMMAND_CH      = 1002
-local BROADCAST_EVERY = 5
+local BROADCAST_EVERY  = 5
+local PERIOD_TICKS     = 1200
 local ticksSincePeriod = 0
 
 -- ── Peripheral detection ─────────────────────────────────────
@@ -703,7 +704,6 @@ local function runRegistration()
 end
 
 -- ── Billing logic ────────────────────────────────────────────
-local PERIOD_TICKS     = 1200
 
 local function doPaygBilling(fe)
   data.balance       = data.balance - (fe * data.ratePerFE)
