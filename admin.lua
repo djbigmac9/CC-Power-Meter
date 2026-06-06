@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "1.9"
+local VERSION      = "2.0"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -213,9 +213,12 @@ end
 
 local function whisper(player, msg)
   if chatBox and player then
-    pcall(function()
+    local ok, err = pcall(function()
       chatBox.sendMessageToPlayer(msg, player, "Beyond Energy")
     end)
+    if not ok then
+      addAlert("Whisper error: " .. tostring(err))
+    end
   end
 end
 
@@ -639,5 +642,11 @@ end
 W, H = monitor.getSize()
 monitor.setBackgroundColor(colors.black)
 monitor.clear()
+if chatBox then
+  term.setTextColor(colors.lime);  print("Chat Box       : found")
+else
+  term.setTextColor(colors.orange); print("Chat Box       : not found (whispers disabled)")
+end
+term.setTextColor(colors.white)
 bootUpdateCheck()
 mainLoop()
