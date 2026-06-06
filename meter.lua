@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.2"
+local VERSION      = "3.3"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -271,7 +271,11 @@ local function handleCommand(msg)
       if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = becomingProducer
-    setPower(data.powerOn)
+    if becomingProducer then
+      setPower(true)
+    else
+      setPower(data.powerOn and data.balance > 0)
+    end
     saveData()
   end
 end
@@ -509,7 +513,11 @@ local function drawTypeChangeScreen()
       if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = not data.isProducer
-    setPower(data.powerOn)
+    if data.isProducer then
+      setPower(true)
+    else
+      setPower(data.powerOn and data.balance > 0)
+    end
     saveData(); typeChangeActive = false
   end)
   addButton(mid+1, 17, mid+1+btnW, 17, "CANCEL", colors.white, colors.red, function()
