@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v2.4
+--  BeyondSMP Electric Meter v2.5
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.4"
+local VERSION      = "2.5"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -196,8 +196,10 @@ end
 -- ── Networking ───────────────────────────────────────────────
 local function broadcastStatus(importRate, exportRate)
   local billSecsLeft = nil
+  local periodCost   = nil
   if not data.isProducer and data.billingModel == "periodic" then
     billSecsLeft = math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL)
+    periodCost   = data.periodUsage * data.ratePerFE
   end
   modem.transmit(STATUS_CH, COMMAND_CH, {
     type          = "status",
@@ -214,6 +216,7 @@ local function broadcastStatus(importRate, exportRate)
     totalExported = data.totalExported,
     ratePerFE     = data.ratePerFE,
     billSecsLeft  = billSecsLeft,
+    periodCost    = periodCost,
   })
 end
 
@@ -257,7 +260,16 @@ local function handleCommand(msg)
     saveData()
 
   elseif msg.cmd == "settype" and type(msg.value) == "string" then
-    data.isProducer = (msg.value == "producer")
+    local becomingProducer = (msg.value == "producer")
+    if becomingProducer and not data.isProducer
+        and data.billingModel == "periodic" and data.periodUsage > 0 then
+      local charge = data.periodUsage * data.ratePerFE
+      data.balance     = data.balance - charge
+      data.periodUsage = 0
+      ticksSincePeriod = 0
+      if data.balance <= 0 then data.balance = 0 end
+    end
+    data.isProducer = becomingProducer
     setPower(data.powerOn)
     saveData()
   end
@@ -473,20 +485,38 @@ local function drawTypeChangeScreen()
   if data.isProducer then
     centreText(10, "Switching will block export and",  colors.orange)
     centreText(11, "enable grid import (LEFT side).",  colors.orange)
+    centreText(12, "Switch takes effect immediately.", colors.lightGray)
   else
     centreText(10, "Switching will block grid import", colors.orange)
     centreText(11, "and enable export (RIGHT side).",  colors.orange)
+    if data.billingModel == "periodic" and data.periodUsage > 0 then
+      local charge = data.periodUsage * data.ratePerFE
+      centreText(12, "Outstanding period usage will be", colors.orange)
+      centreText(13, "charged now: " .. formatCurrency(charge), colors.orange)
+      centreText(14, "New balance: " .. formatCurrency(data.balance - charge), colors.white)
+    else
+      centreText(12, "Switch takes effect immediately.", colors.lightGray)
+    end
   end
-  centreText(12, "Switch takes effect immediately.", colors.lightGray)
-  hline(14)
+  hline(16)
   local btnW = math.floor(W/2) - 3
   local mid  = math.floor(W/2)
-  addButton(2,     15, 2+btnW,     15, "CONFIRM", colors.black, colors.lime, function()
+  addButton(2,     17, 2+btnW,     17, "CONFIRM", colors.black, colors.lime, function()
+    if not data.isProducer and data.billingModel == "periodic" and data.periodUsage > 0 then
+      local charge = data.periodUsage * data.ratePerFE
+      data.balance     = data.balance - charge
+      data.periodUsage = 0
+      ticksSincePeriod = 0
+      if data.balance <= 0 then
+        data.balance = 0
+        if data.powerOn then setPower(false) end
+      end
+    end
     data.isProducer = not data.isProducer
     setPower(data.powerOn)
     saveData(); typeChangeActive = false
   end)
-  addButton(mid+1, 15, mid+1+btnW, 15, "CANCEL", colors.white, colors.red, function()
+  addButton(mid+1, 17, mid+1+btnW, 17, "CANCEL", colors.white, colors.red, function()
     typeChangeActive = false
   end)
   hline(H-1)
@@ -556,13 +586,16 @@ local function drawMeterScreen(importRate, exportRate)
     writeAt(2, 11, " Period usage:  ", colors.lightGray)
     monitor.setTextColor(colors.white)
     monitor.write(formatFE(data.periodUsage).."   ")
+    writeAt(2, 12, " Period cost:   ", colors.lightGray)
+    monitor.setTextColor(colors.orange)
+    monitor.write(formatCurrency(data.periodUsage * data.ratePerFE).."   ")
     local secsLeft = math.max(0, math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL))
     local mins = math.floor(secsLeft / 60)
     local secs = secsLeft % 60
-    writeAt(2, 12, " Next bill in:  ", colors.lightGray)
+    writeAt(2, 13, " Next bill in:  ", colors.lightGray)
     monitor.setTextColor(colors.cyan)
     monitor.write(string.format("%dm %02ds   ", mins, secs))
-    nextRow = 13
+    nextRow = 14
   end
 
   local statusRow = nextRow + 1

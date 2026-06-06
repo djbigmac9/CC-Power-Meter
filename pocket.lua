@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.1"
+local VERSION      = "2.2"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -301,13 +301,20 @@ local function drawDetail()
   at(10, 9, online and "Online" or "OFFLINE",
     online and colors.lime or colors.red)
 
-  local o = 0  -- row offset when "Next bill in" row is shown
-  if not m.isProducer and m.plan == "periodic" and m.billSecsLeft then
-    local mins = math.floor(m.billSecsLeft / 60)
-    local secs = m.billSecsLeft % 60
-    at(1, 10, "Next:    ", colors.gray)
-    at(10, 10, string.format("%dm %02ds", mins, secs), colors.cyan)
-    o = 1
+  local o = 0  -- row offset per extra periodic row shown
+  if not m.isProducer and m.plan == "periodic" then
+    if m.periodCost then
+      at(1, 10 + o, "Cost:    ", colors.gray)
+      at(10, 10 + o, string.format("%.4f LC", m.periodCost), colors.orange)
+      o = o + 1
+    end
+    if m.billSecsLeft then
+      local mins = math.floor(m.billSecsLeft / 60)
+      local secs = m.billSecsLeft % 60
+      at(1, 10 + o, "Next:    ", colors.gray)
+      at(10, 10 + o, string.format("%dm %02ds", mins, secs), colors.cyan)
+      o = o + 1
+    end
   end
 
   hline(10 + o)

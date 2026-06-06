@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.5"
+local VERSION      = "2.6"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -423,11 +423,19 @@ local function drawCustomerScreen()
   writeAt(2, 11, "Rate cap:       " .. ((m.cap or 0)>=2147483647
                   and "Unlimited" or formatFE(m.cap or 0).." FE/t"),           colors.gray)
   writeAt(2, 12, "Rate/FE:        " .. string.format("%.6f LC", m.ratePerFE or DEFAULT_RATE), colors.gray)
-  if not m.isProducer and m.plan == "periodic" and m.billSecsLeft then
-    local mins = math.floor(m.billSecsLeft / 60)
-    local secs = m.billSecsLeft % 60
-    writeAt(2, 13, "Next bill in:   " .. string.format("%dm %02ds", mins, secs),   colors.cyan)
-    writeAt(2, 14, "Status:         " .. (isOnline and "Online" or "OFFLINE"),
+  if not m.isProducer and m.plan == "periodic" then
+    local row = 13
+    if m.periodCost then
+      writeAt(2, row, "Period cost:    " .. formatCurrency(m.periodCost) .. " LC", colors.orange)
+      row = row + 1
+    end
+    if m.billSecsLeft then
+      local mins = math.floor(m.billSecsLeft / 60)
+      local secs = m.billSecsLeft % 60
+      writeAt(2, row, "Next bill in:   " .. string.format("%dm %02ds", mins, secs), colors.cyan)
+      row = row + 1
+    end
+    writeAt(2, row, "Status:         " .. (isOnline and "Online" or "OFFLINE"),
       isOnline and colors.lime or colors.red)
   else
     writeAt(2, 13, "Status:         " .. (isOnline and "Online" or "OFFLINE"),
