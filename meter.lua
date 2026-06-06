@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v2.6
+--  BeyondSMP Electric Meter v2.7
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.6"
+local VERSION      = "2.7"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -741,49 +741,54 @@ end
 local function mainLoop()
   local lastBroadcast   = 0
   local lastUpdateCheck = os.clock()
+  local importRate      = 0
+  local exportRate      = 0
+
+  local timer = os.startTimer(POLL_INTERVAL)
 
   while true do
-    local importRate = importDetector and importDetector.getTransferRate and importDetector.getTransferRate() or 0
-    local exportRate = exportDetector and exportDetector.getTransferRate and exportDetector.getTransferRate() or 0
+    local ev = { os.pullEvent() }
+    local e  = ev[1]
 
-    if data.powerOn then
-      if data.isProducer then
-        if exportRate > 0 then doProducerBilling(exportRate) end
-      else
-        if importRate > 0 then
-          if data.billingModel == "payg" then doPaygBilling(importRate)
-          else doPeriodicBilling(importRate) end
+    if e == "monitor_touch" then
+      checkClick(ev[3], ev[4])
+
+    elseif e == "modem_message" then
+      handleCommand(ev[5])
+
+    elseif e == "timer" and ev[2] == timer then
+      -- Billing and rate sampling only on the poll timer
+      importRate = importDetector and importDetector.getTransferRate and importDetector.getTransferRate() or 0
+      exportRate = exportDetector and exportDetector.getTransferRate and exportDetector.getTransferRate() or 0
+
+      if data.powerOn then
+        if data.isProducer then
+          if exportRate > 0 then doProducerBilling(exportRate) end
+        else
+          if importRate > 0 then
+            if data.billingModel == "payg" then doPaygBilling(importRate)
+            else doPeriodicBilling(importRate) end
+          end
         end
       end
+
+      local now = os.clock()
+      if now - lastUpdateCheck >= UPDATE_EVERY then
+        lastUpdateCheck = now
+        backgroundUpdateCheck()
+      end
+      if now - lastBroadcast >= BROADCAST_EVERY then
+        broadcastStatus(importRate, exportRate)
+        lastBroadcast = now
+      end
+
+      timer = os.startTimer(POLL_INTERVAL)
     end
 
-    local now = os.clock()
-
-    if now - lastUpdateCheck >= UPDATE_EVERY then
-      lastUpdateCheck = now
-      backgroundUpdateCheck()
-    end
-
-    if now - lastBroadcast >= BROADCAST_EVERY then
-      broadcastStatus(importRate, exportRate)
-      lastBroadcast = now
-    end
-
+    -- Redraw on every event so touch responses feel instant
     if typeChangeActive then drawTypeChangeScreen()
     elseif planChangeActive then drawPlanChangeScreen()
     else drawMeterScreen(importRate, exportRate) end
-
-    local timer = os.startTimer(POLL_INTERVAL)
-    while true do
-      local ev = { os.pullEvent() }
-      if ev[1] == "monitor_touch" then
-        checkClick(ev[3], ev[4]); break
-      elseif ev[1] == "modem_message" then
-        handleCommand(ev[5]); break
-      elseif ev[1] == "timer" and ev[2] == timer then
-        break
-      end
-    end
   end
 end
 
