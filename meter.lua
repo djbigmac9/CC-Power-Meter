@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.4"
+local VERSION      = "3.5"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -767,21 +767,27 @@ local function mainLoop()
     local ev = { os.pullEvent() }
     local e  = ev[1]
 
+    immediateRedraw = false
+
     if e == "monitor_touch" then
       local wasType = typeChangeActive
       local wasPlan = planChangeActive
-      immediateRedraw = false
       checkClick(ev[3], ev[4])
-      -- redraw immediately on overlay transitions or when an action flags it
-      -- (PAY NOW must vanish before the next tick to prevent double-tap charges)
       if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
+        immediateRedraw = false
       end
 
     elseif e == "modem_message" then
       handleCommand(ev[5])
+      if immediateRedraw then
+        if typeChangeActive then drawTypeChangeScreen()
+        elseif planChangeActive then drawPlanChangeScreen()
+        else drawMeterScreen(importRate, exportRate) end
+        immediateRedraw = false
+      end
 
     elseif e == "timer" and ev[2] == timer then
       -- Billing, rate sampling, and redraw only on the poll timer
