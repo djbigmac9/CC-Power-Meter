@@ -635,7 +635,7 @@ local function drawMeterScreen(importRate, exportRate)
   if not data.isProducer and data.billingModel == "periodic" and data.periodUsage > 0 then
     hline(H-4)
     local charge = data.periodUsage * data.ratePerFE
-    local label  = " PAY NOW (" .. formatCurrency(charge) .. " LC) "
+    local label  = " PAY NOW (" .. formatCurrency(charge) .. ") "
     addButton(2, H-3, W-1, H-3, label, colors.black, colors.lime, function()
       data.balance     = data.balance - charge
       data.periodUsage = 0
