@@ -10,7 +10,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "1.8"
+local VERSION      = "1.9"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300  -- seconds between background checks
 
@@ -536,6 +536,13 @@ local function mainLoop()
 
   while true do
     local rate = detector.getTransferRate and detector.getTransferRate() or 0
+
+    -- DEBUG: print raw rate to terminal every tick
+    term.setCursorPos(1, 1)
+    term.clearLine()
+    term.setTextColor(colors.yellow)
+    term.write("DEBUG rate: " .. tostring(rate))
+    term.setTextColor(colors.white)
 
     if rate > 0 and data.powerOn then
       if data.billingModel == "payg" then doPaygBilling(rate)
