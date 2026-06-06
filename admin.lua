@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.9"
+local VERSION      = "3.0"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -211,12 +211,19 @@ local function checkAutoLock()
 end
 
 -- ── State ────────────────────────────────────────────────────
-local meters        = {}
-local alerts        = {}
-local selectedMeter = nil
-local currentScreen = "dashboard"
-local rateInput    = ""
-local rateInputRow = 1
+local meters         = {}
+local alerts         = {}
+local selectedMeter  = nil
+local currentScreen  = "dashboard"
+local rateInput      = ""
+local rateInputRow   = 1
+local confirmPending = nil  -- {lines={}, action=fn, returnScreen=str}
+
+local function confirm(lines, action, returnScreen)
+  if type(lines) == "string" then lines = {lines} end
+  confirmPending = {lines=lines, action=action, returnScreen=returnScreen or currentScreen}
+  currentScreen  = "confirm"
+end
 
 local function sendCommand(id, cmd, value)
   modem.transmit(COMMAND_CH, STATUS_CH, {id=id, cmd=cmd, value=value})
@@ -261,6 +268,34 @@ local function whisper(player, msg)
       chatBox.sendMessageToPlayer(msg, player, "Beyond Energy")
     end)
   end
+end
+
+-- ── Confirm screen ───────────────────────────────────────────
+local function drawConfirmScreen()
+  if not confirmPending then currentScreen = "dashboard"; return end
+  cls(); clearButtons(); refreshSize()
+  writeAt(1, 1, string.rep(" ", W), colors.white, colors.red)
+  centreText(1, " CONFIRM ACTION ", colors.white, colors.red)
+  hline(2)
+  for i, line in ipairs(confirmPending.lines) do
+    centreText(3 + i, line, colors.white)
+  end
+  local mid  = math.floor(H / 2)
+  hline(mid - 1)
+  local bw  = math.floor(W / 2) - 3
+  local bmid = math.floor(W / 2)
+  addButton(2,      mid + 1, 2 + bw,      mid + 1, "CONFIRM", colors.black, colors.lime, function()
+    confirmPending.action()
+    currentScreen  = confirmPending.returnScreen
+    confirmPending = nil
+  end)
+  addButton(bmid+1, mid + 1, bmid+1 + bw, mid + 1, "CANCEL",  colors.white, colors.red,  function()
+    currentScreen  = confirmPending.returnScreen
+    confirmPending = nil
+  end)
+  hline(H-1)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
+  drawButtons()
 end
 
 -- ── PIN screen ───────────────────────────────────────────────
@@ -455,18 +490,23 @@ local function drawDashboard()
     colors.black, colors.cyan,    function() currentScreen="rate" end)
   addButton(2+bw*3,     H-2, 1+bw*4,  H-2, "UPD METERS",
     colors.black, colors.purple,  function()
-      sendBroadcast("update")
-      addAlert("Remote update sent to all meters")
+      confirm({"Push update to ALL meters?", "They will reboot immediately."}, function()
+        sendBroadcast("update")
+        addAlert("Remote update sent to all meters")
+      end, "dashboard")
     end)
   addButton(2+bw*4,     H-2, 1+bw*5,   H-2, anyOn and "CUT ALL" or "RESTORE ALL",
     colors.white, anyOn and colors.red or colors.green,
     function()
       if anyOn then
-        sendBroadcast("cut");     addAlert("ADMIN: All meters cut")
+        confirm({"Cut power to ALL meters?"}, function()
+          sendBroadcast("cut"); addAlert("ADMIN: All meters cut")
+          currentScreen = "alerts"
+        end, "dashboard")
       else
         sendBroadcast("restore"); addAlert("ADMIN: All meters restored")
+        currentScreen = "alerts"
       end
-      currentScreen = "alerts"
     end)
   addButton(2+bw*5,     H-2, W,        H-2, "LOCK",
     colors.white, colors.gray, function()
@@ -562,9 +602,11 @@ local function drawCustomerScreen()
     m.powerOn and "CUT POWER" or "RESTORE",
     colors.white, m.powerOn and colors.red or colors.green, function()
       if m.powerOn then
-        sendCommand(id, "cut")
-        addAlert("Cut: "..(m.player or id))
-        whisper(m.player, "Your power supply has been cut by an administrator. Please contact Beyond Energy if you believe this is an error.")
+        confirm({"Cut power for "..(m.player or tostring(id)).."?"}, function()
+          sendCommand(id, "cut")
+          addAlert("Cut: "..(m.player or id))
+          whisper(m.player, "Your power supply has been cut by an administrator. Please contact Beyond Energy if you believe this is an error.")
+        end, "customer")
       else
         sendCommand(id, "restore")
         addAlert("Restored: "..(m.player or id))
@@ -605,22 +647,31 @@ local function drawCustomerScreen()
     colors.black, colors.yellow, function()
       local newPlan  = (m.plan == "payg") and "periodic" or "payg"
       local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
-      sendCommand(id, "setplan", newPlan)
-      addAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(id)))
-      m.plan = newPlan
+      confirm({"Change plan for "..(m.player or tostring(id)).."?",
+               "New plan: "..newLabel}, function()
+        sendCommand(id, "setplan", newPlan)
+        addAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(id)))
+        m.plan = newPlan
+      end, "customer")
     end)
   addButton(2+bw4*2,    H-2, 1+bw4*3,  H-2, "UPDATE",
     colors.black, colors.purple, function()
-      sendCommand(id, "update")
-      addAlert("Update sent to "..(m.player or id))
+      confirm({"Push update to "..(m.player or tostring(id)).."?",
+               "Meter will reboot."}, function()
+        sendCommand(id, "update")
+        addAlert("Update sent to "..(m.player or id))
+      end, "customer")
     end)
   addButton(2+bw4*3,    H-2, W,         H-2,
     m.isProducer and "-> CONSUMER" or "-> PRODUCER",
     colors.black, colors.orange, function()
-      local newType = not m.isProducer
-      sendCommand(id, "settype", newType and "producer" or "consumer")
-      addAlert("Type -> "..(newType and "Producer" or "Consumer")..": "..(m.player or tostring(id)))
-      m.isProducer = newType
+      local newType  = not m.isProducer
+      local newLabel = newType and "Producer" or "Consumer"
+      confirm({"Switch "..(m.player or tostring(id)).." to "..newLabel.."?"}, function()
+        sendCommand(id, "settype", newType and "producer" or "consumer")
+        addAlert("Type -> "..newLabel..": "..(m.player or tostring(id)))
+        m.isProducer = newType
+      end, "customer")
     end)
 
   hline(H-1)
@@ -736,7 +787,8 @@ local function mainLoop()
     end
     refreshSize()
       checkAutoLock()
-    if not pinUnlocked then drawPinScreen()
+    if not pinUnlocked              then drawPinScreen()
+    elseif currentScreen == "confirm"   then drawConfirmScreen()
     elseif currentScreen == "dashboard" then drawDashboard()
     elseif currentScreen == "customer"  then drawCustomerScreen()
     elseif currentScreen == "rate"      then
