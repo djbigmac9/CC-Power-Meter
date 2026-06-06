@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.8"
+local VERSION      = "3.9"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -584,18 +584,33 @@ local function drawMeterScreen(importRate, exportRate)
   infoRow(9, "Type", data.isProducer and "Producer" or "Consumer",
           data.isProducer and colors.lime or colors.cyan)
 
-  local nextRow = 11
+  local nextRow = 12
   if data.isProducer then
     infoRow(10, "Total exported", formatFE(data.totalExported) .. " FE", colors.lime)
+    nextRow = 11
   elseif data.billingModel == "periodic" then
     infoRow(10, "Period cost", formatCurrency(data.periodUsage * data.ratePerFE) .. " LC", colors.orange)
     local secsLeft = math.max(0, math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL))
     local mins = math.floor(secsLeft / 60)
     local secs = secsLeft % 60
     infoRow(11, "Next bill", string.format("%dm %02ds", mins, secs), colors.cyan)
-    nextRow = 12
   else
+    -- PAYG consumer
     infoRow(10, "Total consumed", formatFE(data.totalConsumed) .. " FE", colors.white)
+    local costPerSec = importRate * data.ratePerFE
+    if data.balance > 0 and costPerSec > 0 then
+      local secs = math.floor(data.balance / costPerSec)
+      local h = math.floor(secs / 3600)
+      local m = math.floor((secs % 3600) / 60)
+      local s = secs % 60
+      local timeStr = h > 0 and string.format("%dh %02dm", h, m)
+                   or m > 0 and string.format("%dm %02ds", m, s)
+                   or string.format("%ds", s)
+      local col = secs < 300 and colors.red or (secs < 1800 and colors.yellow or colors.lime)
+      infoRow(11, "Est. time left", timeStr, col)
+    elseif data.balance > 0 then
+      infoRow(11, "Est. time left", "No draw", colors.gray)
+    end
   end
 
   hline(nextRow, "\140")
