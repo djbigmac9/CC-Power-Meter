@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.2"
+local VERSION      = "2.4"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -204,11 +204,24 @@ local function addAlert(msg)
   if #alerts > 20 then table.remove(alerts) end
 end
 
+local updateAvail = false
+
 local function backgroundUpdateCheck()
   local latest = getLatestVersion()
   if latest and isNewer(latest, VERSION) then
+    updateAvail = true
     addAlert("Admin update available: v" .. latest .. " - reboot to install")
   end
+end
+
+local function drawUpdateBanner()
+  if not updateAvail then return end
+  local label = " ** UPDATE AVAILABLE - REBOOT TO INSTALL ** "
+  local bx    = math.floor((W - #label) / 2) + 1
+  addButton(bx, H-1, bx + #label - 1, H-1, label, colors.black, colors.yellow, function()
+    doUpdate()
+  end)
+  centreText(H-1, label, colors.black, colors.yellow)
 end
 
 local function whisper(player, msg)
@@ -304,14 +317,16 @@ local function drawDashboard()
     local id  = entry.id
     local m   = entry.m
     local bal = m.balance or 0
-    local stTx = m.powerOn and "ON" or "OFF"
-    local line = string.format("%-16s %-8s %8s LC %7s/t %7s  %s",
-      (m.player or "?"):sub(1,16),
+    local stTx    = m.powerOn and "ON" or "OFF"
+    local typeTag  = m.isProducer and "[P]" or "[C]"
+    local rateDisp = m.isProducer and (m.exportRate or 0) or (m.draw or 0)
+    local line = string.format("%-13s %-8s %8s LC %7s/t %7s  %s %s",
+      (m.player or "?"):sub(1,13),
       (m.plan or "?"):sub(1,8),
       formatCurrency(bal),
-      formatFE(m.draw or 0),
+      formatFE(rateDisp),
       (m.cap or 0) >= 2147483647 and "Unlim" or formatFE(m.cap or 0),
-      stTx)
+      stTx, typeTag)
     table.insert(rowRenders, {x=x1, y=rowY, text=line})
     local cid = id
     addButton(1, rowY, W, rowY, "", colors.white, colors.black, function()
@@ -353,6 +368,7 @@ local function drawDashboard()
     end)
 
   hline(H-1)
+  drawUpdateBanner()
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION.."  ID:"..os.getComputerID(), colors.gray)
   drawButtons()
 
@@ -389,29 +405,37 @@ local function drawCustomerScreen()
   writeAt(2, 3,  "Player:    " .. (m.player or "Unknown"),                    colors.white)
   writeAt(2, 4,  "Plan:      " .. (m.plan=="payg" and "Pay As You Go" or "Periodic"), colors.cyan)
   writeAt(2, 5,  "Meter ID:  " .. tostring(id),                               colors.gray)
-  hline(6)
+  writeAt(2, 6,  "Type:      " .. (m.isProducer and "Producer" or "Consumer"),
+    m.isProducer and colors.yellow or colors.cyan)
+  hline(7)
 
   local bal = m.balance or 0
   local balFg = bal > 50 and colors.lime or (bal > 0 and colors.yellow or colors.red)
 
-  writeAt(2, 7,  "Balance:        " .. formatCurrency(bal) .. " LC",          balFg)
-  writeAt(2, 8,  "Live draw:      " .. formatFE(m.draw or 0) .. " FE/t",      colors.white)
-  writeAt(2, 9,  "Rate cap:       " .. ((m.cap or 0)>=2147483647
+  writeAt(2, 8,  "Balance:        " .. formatCurrency(bal) .. " LC",          balFg)
+  if m.isProducer then
+    writeAt(2, 9,  "Exporting:      " .. formatFE(m.exportRate or 0) .. " FE/t",   colors.yellow)
+    writeAt(2, 10, "Total exported: " .. formatFE(m.totalExported or 0) .. " FE",  colors.white)
+  else
+    writeAt(2, 9,  "Live draw:      " .. formatFE(m.draw or 0) .. " FE/t",         colors.white)
+    writeAt(2, 10, "Total consumed: " .. formatFE(m.total or 0) .. " FE",          colors.white)
+  end
+  writeAt(2, 11, "Rate cap:       " .. ((m.cap or 0)>=2147483647
                   and "Unlimited" or formatFE(m.cap or 0).." FE/t"),           colors.gray)
-  writeAt(2, 10, "Total consumed: " .. formatFE(m.total or 0) .. " FE",       colors.white)
-  writeAt(2, 11, "Rate/FE:        " .. string.format("%.6f LC", m.ratePerFE or DEFAULT_RATE), colors.gray)
-  writeAt(2, 12, "Status:         " .. (isOnline and "Online" or "OFFLINE"),
+  writeAt(2, 12, "Rate/FE:        " .. string.format("%.6f LC", m.ratePerFE or DEFAULT_RATE), colors.gray)
+  writeAt(2, 13, "Status:         " .. (isOnline and "Online" or "OFFLINE"),
     isOnline and colors.lime or colors.red)
 
-  hline(13)
+  hline(14)
   if m.powerOn then
-    centreText(14, " POWER ON ",  colors.black, colors.lime)
+    centreText(15, " POWER ON ",  colors.black, colors.lime)
   else
-    centreText(14, " POWER OFF ", colors.white, colors.red)
+    centreText(15, " POWER OFF ", colors.white, colors.red)
   end
-  hline(15)
+  hline(16)
 
-  local bw = math.floor((W - 6) / 3)
+  local bw  = math.floor((W - 6) / 3)
+  local bw4 = math.floor((W - 6) / 4)
   addButton(2,       H-4, 1+bw,   H-4,
     m.powerOn and "CUT POWER" or "RESTORE",
     colors.white, m.powerOn and colors.red or colors.green, function()
@@ -441,7 +465,7 @@ local function drawCustomerScreen()
       m.cap = nc
     end)
 
-  addButton(2,       H-2, 1+bw,   H-2, "RENAME",
+  addButton(2,          H-2, 1+bw4,    H-2, "RENAME",
     colors.black, colors.orange, function()
       term.setTextColor(colors.orange)
       print("\nRename meter for: " .. (m.player or tostring(id)))
@@ -455,7 +479,7 @@ local function drawCustomerScreen()
         m.player = name
       end
     end)
-  addButton(2+bw,    H-2, 1+bw*2, H-2, "CHG PLAN",
+  addButton(2+bw4,      H-2, 1+bw4*2,  H-2, "CHG PLAN",
     colors.black, colors.yellow, function()
       local newPlan  = (m.plan == "payg") and "periodic" or "payg"
       local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
@@ -463,13 +487,22 @@ local function drawCustomerScreen()
       addAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(id)))
       m.plan = newPlan
     end)
-  addButton(2+bw*2,  H-2, W,      H-2, "UPDATE",
+  addButton(2+bw4*2,    H-2, 1+bw4*3,  H-2, "UPDATE",
     colors.black, colors.purple, function()
       sendCommand(id, "update")
       addAlert("Update sent to "..(m.player or id))
     end)
+  addButton(2+bw4*3,    H-2, W,         H-2,
+    m.isProducer and "-> CONSUMER" or "-> PRODUCER",
+    colors.black, colors.orange, function()
+      local newType = not m.isProducer
+      sendCommand(id, "settype", newType and "producer" or "consumer")
+      addAlert("Type -> "..(newType and "Producer" or "Consumer")..": "..(m.player or tostring(id)))
+      m.isProducer = newType
+    end)
 
   hline(H-1)
+  drawUpdateBanner()
   addButton(1, H, W, H, "< BACK",
     colors.black, colors.gray, function() currentScreen="dashboard" end)
 
@@ -502,6 +535,7 @@ local function drawRateScreen()
   addButton(W-bw-1, H-2, W-1, H-2, "CANCEL",
     colors.white, colors.red, function() rateInput=""; currentScreen="dashboard" end)
   hline(H-1)
+  drawUpdateBanner()
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
@@ -525,6 +559,7 @@ local function drawAlertsScreen()
   addButton(2,       H-2, 2+bw,  H-2, "CLEAR ALL", colors.black, colors.red,  function() alerts={} end)
   addButton(W-bw-1,  H-2, W-1,   H-2, "< BACK",    colors.black, colors.gray, function() currentScreen="dashboard" end)
   hline(H-1)
+  drawUpdateBanner()
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
