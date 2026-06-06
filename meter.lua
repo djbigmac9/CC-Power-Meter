@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v2.8
+--  BeyondSMP Electric Meter v2.9
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.8"
+local VERSION      = "2.9"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -635,7 +635,7 @@ local function drawMeterScreen(importRate, exportRate)
   if not data.isProducer and data.billingModel == "periodic" and data.periodUsage > 0 then
     hline(H-4)
     local charge = data.periodUsage * data.ratePerFE
-    local label  = " PAY NOW (" .. formatCurrency(charge) .. " LC) "
+    local label  = " PAY NOW (" .. formatCurrency(charge) .. ") "
     addButton(2, H-3, W-1, H-3, label, colors.black, colors.lime, function()
       data.balance     = data.balance - charge
       data.periodUsage = 0
