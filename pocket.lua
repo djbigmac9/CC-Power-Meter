@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.9"
+local VERSION      = "2.10"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -369,7 +369,6 @@ local function drawList()
   end)
   btn(hw+1, H-1, W,   "REST ALL", colors.black, colors.green,  function()
     broadcast("restore"); pushAlert("All meters restored") end)
-  hline(H - 1)
   btn(1,    H,   hw,  "UPD ALL",  colors.black, colors.purple, function()
     confirm({"Update ALL meters?", "They will reboot."}, function()
       broadcast("update"); pushAlert("Update sent to all meters")
