@@ -74,13 +74,6 @@ local function bootUpdateCheck()
   end
 end
 
-local function backgroundUpdateCheck()
-  local latest = getLatestVersion()
-  if latest and isNewer(latest, VERSION) then
-    addAlert("Admin update available: v" .. latest .. " - reboot to install")
-  end
-end
-
 local STATUS_CH     = 1001
 local COMMAND_CH    = 1002
 local METER_TIMEOUT = 30
@@ -209,6 +202,13 @@ end
 local function addAlert(msg)
   table.insert(alerts, 1, "[" .. textutils.formatTime(os.time()) .. "] " .. msg)
   if #alerts > 20 then table.remove(alerts) end
+end
+
+local function backgroundUpdateCheck()
+  local latest = getLatestVersion()
+  if latest and isNewer(latest, VERSION) then
+    addAlert("Admin update available: v" .. latest .. " - reboot to install")
+  end
 end
 
 local function whisper(player, msg)
