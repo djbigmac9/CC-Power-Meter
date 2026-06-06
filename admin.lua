@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.3"
+local VERSION      = "2.4"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -204,11 +204,24 @@ local function addAlert(msg)
   if #alerts > 20 then table.remove(alerts) end
 end
 
+local updateAvail = false
+
 local function backgroundUpdateCheck()
   local latest = getLatestVersion()
   if latest and isNewer(latest, VERSION) then
+    updateAvail = true
     addAlert("Admin update available: v" .. latest .. " - reboot to install")
   end
+end
+
+local function drawUpdateBanner()
+  if not updateAvail then return end
+  local label = " ** UPDATE AVAILABLE - REBOOT TO INSTALL ** "
+  local bx    = math.floor((W - #label) / 2) + 1
+  addButton(bx, H-1, bx + #label - 1, H-1, label, colors.black, colors.yellow, function()
+    doUpdate()
+  end)
+  centreText(H-1, label, colors.black, colors.yellow)
 end
 
 local function whisper(player, msg)
@@ -355,6 +368,7 @@ local function drawDashboard()
     end)
 
   hline(H-1)
+  drawUpdateBanner()
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION.."  ID:"..os.getComputerID(), colors.gray)
   drawButtons()
 
@@ -488,6 +502,7 @@ local function drawCustomerScreen()
     end)
 
   hline(H-1)
+  drawUpdateBanner()
   addButton(1, H, W, H, "< BACK",
     colors.black, colors.gray, function() currentScreen="dashboard" end)
 
@@ -520,6 +535,7 @@ local function drawRateScreen()
   addButton(W-bw-1, H-2, W-1, H-2, "CANCEL",
     colors.white, colors.red, function() rateInput=""; currentScreen="dashboard" end)
   hline(H-1)
+  drawUpdateBanner()
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
@@ -543,6 +559,7 @@ local function drawAlertsScreen()
   addButton(2,       H-2, 2+bw,  H-2, "CLEAR ALL", colors.black, colors.red,  function() alerts={} end)
   addButton(W-bw-1,  H-2, W-1,   H-2, "< BACK",    colors.black, colors.gray, function() currentScreen="dashboard" end)
   hline(H-1)
+  drawUpdateBanner()
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end

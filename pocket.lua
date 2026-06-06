@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "1.9"
+local VERSION      = "2.0"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -70,6 +70,15 @@ end
 local function pushAlert(msg)
   table.insert(alerts, 1, msg)
   if #alerts > 20 then table.remove(alerts) end
+end
+
+local function drawUpdateBanner()
+  if not updateAvail then return end
+  at(1, H-1, string.rep(" ", W), colors.black, colors.yellow)
+  at(1, H-1, "** UPDATE AVAILABLE - TAP TO INSTALL **", colors.black, colors.yellow)
+  table.insert(btns, {x1=1, x2=W, y=H-1, fn=function()
+    doUpdate()
+  end})
 end
 
 -- ── Update ───────────────────────────────────────────────────
@@ -230,6 +239,7 @@ local function drawList()
     end
   end
 
+  drawUpdateBanner()
   hline(H - 1)
   local bw = math.floor(W / 3)
   btn(1,      H, bw,     "CUT ALL",  colors.white, colors.red,    function()
@@ -385,6 +395,7 @@ local function drawDetail()
       m.isProducer = newType
     end)
 
+  drawUpdateBanner()
   hline(H-1)
   btn(1,    H, bw,   "< BACK",
     colors.black, colors.gray, function() screen = "list" end)
