@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v1.9
+--  BeyondSMP Admin Panel v3.1
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.1"
+local VERSION      = "3.2"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -233,9 +233,6 @@ local function sendBroadcast(cmd, value)
   modem.transmit(COMMAND_CH, STATUS_CH, {id="all", cmd=cmd, value=value})
 end
 
-local function sendToAll(cmd, value)
-  sendBroadcast(cmd, value)
-end
 
 local function addAlert(msg)
   table.insert(alerts, 1, "[" .. textutils.formatTime(os.time()) .. "] " .. msg)
@@ -710,7 +707,7 @@ local function drawRateScreen()
     colors.black, colors.lime, function()
       local n = tonumber(rateInput)
       if n and n > 0 then
-        DEFAULT_RATE = n; sendToAll("setrate", n)
+        DEFAULT_RATE = n; sendBroadcast("setrate", n)
         addAlert("Rate set to "..string.format("%.6f",n))
         rateInput = ""; currentScreen = "dashboard"
       end
@@ -862,7 +859,7 @@ local function mainLoop()
         elseif ev[2] == keys.enter then
           local n = tonumber(rateInput)
           if n and n > 0 then
-            DEFAULT_RATE = n; sendToAll("setrate", n)
+            DEFAULT_RATE = n; sendBroadcast("setrate", n)
             addAlert("Rate set to "..string.format("%.6f",n))
             term.setCursorPos(1, rateInputRow + 1)
             term.setTextColor(colors.white)

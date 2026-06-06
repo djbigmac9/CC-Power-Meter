@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.11"
+local VERSION      = "2.12"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -110,15 +110,6 @@ local function pushAlert(msg)
   if #alerts > 20 then table.remove(alerts) end
 end
 
-local function drawUpdateBanner()
-  if not updateAvail then return end
-  at(1, H-1, string.rep(" ", W), colors.black, colors.yellow)
-  at(1, H-1, "** UPDATE AVAILABLE - TAP TO INSTALL **", colors.black, colors.yellow)
-  table.insert(btns, {x1=1, x2=W, y=H-1, fn=function()
-    doUpdate()
-  end})
-end
-
 -- ── Update ───────────────────────────────────────────────────
 local function parseVersion(v)
   local major, minor = v:match("(%d+)%.(%d+)")
@@ -185,6 +176,15 @@ local function backgroundUpdateCheck()
     updateAvail = true
     pushAlert("Pocket update available: v"..latest.." - reboot to install")
   end
+end
+
+local function drawUpdateBanner()
+  if not updateAvail then return end
+  at(1, H-1, string.rep(" ", W), colors.black, colors.yellow)
+  at(1, H-1, "** UPDATE AVAILABLE - TAP TO INSTALL **", colors.black, colors.yellow)
+  table.insert(btns, {x1=1, x2=W, y=H-1, fn=function()
+    doUpdate()
+  end})
 end
 
 -- ── Buttons ──────────────────────────────────────────────────
