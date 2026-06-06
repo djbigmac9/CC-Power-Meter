@@ -1,20 +1,21 @@
 -- ============================================================
---  BeyondSMP Electric Meter v1.6
---  Peripherals (fully auto-detected):
---    Energy Detector = any side (Advanced Peripherals)
---    Monitor         = any side (detected by peripheral.find)
---    Ender Modem     = any side (detected by peripheral.find)
+--  BeyondSMP Electric Meter v2.0
+--  Peripherals:
+--    Import Detector = LEFT side  (grid → player, consumers)
+--    Export Detector = RIGHT side (player → grid, producers)
+--    Monitor         = any side
+--    Ender Modem     = any side
 --  Networking:
 --    STATUS_CH  : meter broadcasts status every 5s
 --    COMMAND_CH : meter listens for admin commands
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "1.9"
-local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
-local UPDATE_EVERY = 300  -- seconds between background checks
+local VERSION      = "2.0"
+local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
+local UPDATE_EVERY = 300
 
-local updateAvailable = false  -- shown as banner on monitor
+local updateAvailable = false
 
 local function parseVersion(v)
   local major, minor = v:match("(%d+)%.(%d+)")
@@ -28,7 +29,6 @@ local function isNewer(latest, current)
   return lMin > cMin
 end
 
--- Fetch latest version string from GitHub
 local function getLatestVersion()
   local ok, res = pcall(function()
     return http.get(RAW_URL)
@@ -38,7 +38,6 @@ local function getLatestVersion()
   return body:match('VERSION%s*=%s*"([%d%.]+)"')
 end
 
--- Download and reboot — used both on boot and on remote command
 local function doUpdate()
   term.setTextColor(colors.lime)
   print("Downloading update...")
@@ -63,7 +62,6 @@ local function doUpdate()
   end
 end
 
--- Check on boot — always update silently if newer version found
 local function bootUpdateCheck()
   term.setTextColor(colors.lightGray)
   io.write("Checking for updates... ")
@@ -90,36 +88,34 @@ local function backgroundUpdateCheck()
 end
 
 -- ── Config ───────────────────────────────────────────────────
-local RATE_PER_FE      = 0.0001     -- overridden by admin setrate command
-local POLL_INTERVAL    = 1.0
-local WARN_BALANCE     = 50
-local DATA_FILE        = "meter_data"
-local TEMP_TOP_UP      = 200
-local MAX_FLOW         = 2147483647
-local STATUS_CH        = 1001       -- broadcast channel (all meters share this)
-local COMMAND_CH       = 1002       -- command channel (all meters listen here)
-local BROADCAST_EVERY  = 5          -- seconds between status broadcasts
+local RATE_PER_FE     = 0.0001
+local POLL_INTERVAL   = 1.0
+local WARN_BALANCE    = 50
+local DATA_FILE       = "meter_data"
+local TEMP_TOP_UP     = 200
+local MAX_FLOW        = 2147483647
+local STATUS_CH       = 1001
+local COMMAND_CH      = 1002
+local BROADCAST_EVERY = 5
 
--- ── Peripheral auto-detection ────────────────────────────────
-local detector, detectorSide
-local monitor   = peripheral.find("monitor")
-local modem     = peripheral.find("modem")
+-- ── Peripheral detection ─────────────────────────────────────
+local importDetector = nil   -- left:  grid → player
+local exportDetector = nil   -- right: player → grid
+local monitor = peripheral.find("monitor")
+local modem   = peripheral.find("modem")
 
-for _, side in ipairs({"top","bottom","left","right","front","back"}) do
-  if peripheral.isPresent(side) then
-    if peripheral.getType(side) == "energy_detector" then
-      detector     = peripheral.wrap(side)
-      detectorSide = side
-    end
-  end
+if peripheral.isPresent("left") and peripheral.getType("left") == "energy_detector" then
+  importDetector = peripheral.wrap("left")
+end
+if peripheral.isPresent("right") and peripheral.getType("right") == "energy_detector" then
+  exportDetector = peripheral.wrap("right")
 end
 
 -- ── Boot error screen ────────────────────────────────────────
 local function bootError(msg)
   term.setBackgroundColor(colors.black)
   term.setTextColor(colors.red)
-  term.clear()
-  term.setCursorPos(1,1)
+  term.clear(); term.setCursorPos(1,1)
   print("=== BEYOND ENERGY METER ===\n")
   term.setTextColor(colors.white)
   print("STARTUP ERROR:\n" .. msg .. "\n")
@@ -128,13 +124,16 @@ local function bootError(msg)
   error(msg, 0)
 end
 
-if not detector then bootError("No Energy Detector found.\nAttach an AP Energy Detector to any side.") end
-if not monitor  then bootError("No monitor found.\nAttach a CC Advanced Monitor to any side.") end
-if not modem    then bootError("No modem found.\nAttach an Ender Modem to any side.") end
+if not importDetector and not exportDetector then
+  bootError("No Energy Detector found.\nLeft = grid import, Right = grid export.")
+end
+if not monitor then bootError("No monitor found.\nAttach a CC Advanced Monitor to any side.") end
+if not modem   then bootError("No modem found.\nAttach an Ender Modem to any side.") end
 
 modem.open(COMMAND_CH)
 
-print("Energy Detector : " .. detectorSide)
+print("Import Detector : " .. (importDetector and "left"  or "not found"))
+print("Export Detector : " .. (exportDetector and "right" or "not found"))
 print("Modem           : found")
 print("Monitor         : found")
 print("Listening on ch : " .. COMMAND_CH)
@@ -152,10 +151,12 @@ local data = {
   billingModel  = nil,
   balance       = 0,
   totalConsumed = 0,
+  totalExported = 0,
   periodUsage   = 0,
   powerOn       = false,
   registered    = false,
-  ratePerFE     = RATE_PER_FE,   -- stored so admin can change it remotely
+  isProducer    = false,
+  ratePerFE     = RATE_PER_FE,
 }
 
 local function saveData()
@@ -171,7 +172,9 @@ local function loadData()
     local loaded = textutils.unserialize(raw)
     if loaded then
       data = loaded
-      RATE_PER_FE = data.ratePerFE or RATE_PER_FE
+      RATE_PER_FE           = data.ratePerFE     or RATE_PER_FE
+      data.totalExported    = data.totalExported  or 0
+      data.isProducer       = data.isProducer     or false
     end
   end
 end
@@ -179,23 +182,31 @@ end
 -- ── Power control ────────────────────────────────────────────
 local function setPower(state)
   data.powerOn = state
-  detector.setTransferRateLimit(state and MAX_FLOW or 0)
+  if data.isProducer then
+    if exportDetector then exportDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
+    if importDetector then importDetector.setTransferRateLimit(0) end
+  else
+    if importDetector then importDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
+  end
   saveData()
 end
 
 -- ── Networking ───────────────────────────────────────────────
-local function broadcastStatus(rate)
+local function broadcastStatus(importRate, exportRate)
   modem.transmit(STATUS_CH, COMMAND_CH, {
-    type      = "status",
-    id        = os.getComputerID(),
-    player    = data.playerName,
-    plan      = data.billingModel,
-    balance   = data.balance,
-    draw      = rate,
-    cap       = detector.getTransferRateLimit and detector.getTransferRateLimit() or 0,
-    powerOn   = data.powerOn,
-    total     = data.totalConsumed,
-    ratePerFE = data.ratePerFE,
+    type          = "status",
+    id            = os.getComputerID(),
+    player        = data.playerName,
+    plan          = data.billingModel,
+    balance       = data.balance,
+    draw          = importRate,
+    export        = exportRate,
+    isProducer    = data.isProducer,
+    cap           = importDetector and importDetector.getTransferRateLimit and importDetector.getTransferRateLimit() or 0,
+    powerOn       = data.powerOn,
+    total         = data.totalConsumed,
+    totalExported = data.totalExported,
+    ratePerFE     = data.ratePerFE,
   })
 end
 
@@ -207,7 +218,7 @@ local function handleCommand(msg)
     setPower(false)
 
   elseif msg.cmd == "restore" then
-    if data.balance > 0 then setPower(true) end
+    if data.isProducer or data.balance > 0 then setPower(true) end
 
   elseif msg.cmd == "update" then
     term.setTextColor(colors.orange)
@@ -223,17 +234,24 @@ local function handleCommand(msg)
     saveData()
 
   elseif msg.cmd == "setcap" and type(msg.value) == "number" then
-    detector.setTransferRateLimit(msg.value)
+    if importDetector then importDetector.setTransferRateLimit(msg.value) end
 
   elseif msg.cmd == "setbalance" and type(msg.value) == "number" then
     data.balance = msg.value
-    if data.balance > 0 and not data.powerOn then setPower(true) end
-    if data.balance <= 0 and data.powerOn then setPower(false) end
+    if not data.isProducer then
+      if data.balance > 0 and not data.powerOn then setPower(true) end
+      if data.balance <= 0 and data.powerOn     then setPower(false) end
+    end
     saveData()
 
   elseif msg.cmd == "setrate" and type(msg.value) == "number" then
     data.ratePerFE = msg.value
     RATE_PER_FE    = msg.value
+    saveData()
+
+  elseif msg.cmd == "settype" and type(msg.value) == "string" then
+    data.isProducer = (msg.value == "producer")
+    setPower(data.powerOn)
     saveData()
   end
 end
@@ -308,7 +326,7 @@ local function drawRegisterName()
   centreText(2, "BEYOND ENERGY", colors.yellow)
   centreText(3, "New Customer Setup", colors.lightGray)
   hline(4)
-  centreText(6,  "Step 1 of 2: Your Player Name", colors.white)
+  centreText(6,  "Step 1 of 3: Your Player Name", colors.white)
   centreText(8,  "Type your name on the computer keyboard,", colors.lightGray)
   centreText(9,  "then press ENTER.", colors.lightGray)
   centreText(11, "> " .. regName .. "_", colors.lime)
@@ -322,44 +340,83 @@ local function drawRegisterPlan(name)
   centreText(2, "BEYOND ENERGY", colors.yellow)
   centreText(3, "New Customer Setup", colors.lightGray)
   hline(4)
-  centreText(6, "Step 2 of 2: Choose Your Billing Plan", colors.white)
+  centreText(6, "Step 2 of 3: Choose Your Billing Plan", colors.white)
   centreText(7, "Hi " .. name .. "! Select a plan below.", colors.lightGray)
   hline(9)
   local mid  = math.floor(W / 2)
   local btnW = math.floor(W / 2) - 3
-  writeAt(2, 10, "PAY AS YOU GO",    colors.lime)
-  writeAt(2, 11, "Balance drains in", colors.lightGray)
-  writeAt(2, 12, "real time. Power",  colors.lightGray)
-  writeAt(2, 13, "cuts if you run",   colors.lightGray)
-  writeAt(2, 14, "out of funds.",     colors.lightGray)
+  writeAt(2,     10, "PAY AS YOU GO",    colors.lime)
+  writeAt(2,     11, "Balance drains in", colors.lightGray)
+  writeAt(2,     12, "real time. Power",  colors.lightGray)
+  writeAt(2,     13, "cuts if you run",   colors.lightGray)
+  writeAt(2,     14, "out of funds.",     colors.lightGray)
   writeAt(mid+1, 10, "PERIODIC BILLING",  colors.cyan)
   writeAt(mid+1, 11, "Usage logged and",  colors.lightGray)
   writeAt(mid+1, 12, "charged once per",  colors.lightGray)
   writeAt(mid+1, 13, "billing period.",   colors.lightGray)
   writeAt(mid+1, 14, "Grace period inc.", colors.lightGray)
   hline(16)
-  addButton(2, 17, 2+btnW, 17, "SELECT PAYG", colors.black, colors.lime, function()
-    data.playerName=name; data.billingModel="payg"; data.registered=true; setPower(true); saveData()
+  addButton(2,     17, 2+btnW,     17, "SELECT PAYG",     colors.black, colors.lime, function()
+    data.billingModel = "payg"
   end)
   addButton(mid+1, 17, mid+1+btnW, 17, "SELECT PERIODIC", colors.black, colors.cyan, function()
-    data.playerName=name; data.billingModel="periodic"; data.registered=true; setPower(true); saveData()
+    data.billingModel = "periodic"
   end)
   hline(H-1)
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
 
--- ── Plan change state & screens ──────────────────────────────
+local function drawRegisterType(name)
+  cls(); clearButtons()
+  centreText(2, "BEYOND ENERGY", colors.yellow)
+  centreText(3, "New Customer Setup", colors.lightGray)
+  hline(4)
+  centreText(6, "Step 3 of 3: Connection Type", colors.white)
+  centreText(7, "How will " .. name .. " connect to the grid?", colors.lightGray)
+  hline(9)
+  local mid  = math.floor(W / 2)
+  local btnW = math.floor(W / 2) - 3
+  writeAt(2,     10, "CONSUMER",          colors.cyan)
+  writeAt(2,     11, "Draws power from",  colors.lightGray)
+  writeAt(2,     12, "the grid. Needs",   colors.lightGray)
+  writeAt(2,     13, "LEFT detector.",    colors.lightGray)
+  writeAt(mid+1, 10, "PRODUCER",          colors.lime)
+  writeAt(mid+1, 11, "Sells surplus to",  colors.lightGray)
+  writeAt(mid+1, 12, "the grid. Needs",   colors.lightGray)
+  writeAt(mid+1, 13, "RIGHT detector.",   colors.lightGray)
+  hline(15)
+  addButton(2,     16, 2+btnW,     16, "CONSUMER", colors.black, colors.cyan, function()
+    data.isProducer = false
+    data.playerName = name
+    data.registered = true
+    setPower(true)
+    saveData()
+  end)
+  addButton(mid+1, 16, mid+1+btnW, 16, "PRODUCER", colors.black, colors.lime, function()
+    data.isProducer = true
+    data.playerName = name
+    data.registered = true
+    setPower(true)
+    saveData()
+  end)
+  hline(H-1)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
+  drawButtons()
+end
+
+-- ── Plan / type change screens ────────────────────────────────
 local planChangeActive = false
+local typeChangeActive = false
 
 local function drawPlanChangeScreen()
   cls(); clearButtons()
   centreText(2, "BEYOND ENERGY",       colors.yellow)
   centreText(3, "Change Billing Plan", colors.lightGray)
   hline(4)
-  local newPlan     = data.billingModel == "payg" and "periodic" or "payg"
-  local newLabel    = newPlan == "payg" and "Pay As You Go" or "Periodic Billing"
-  local curLabel    = data.billingModel == "payg" and "Pay As You Go" or "Periodic Billing"
+  local newPlan  = data.billingModel == "payg" and "periodic" or "payg"
+  local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic Billing"
+  local curLabel = data.billingModel == "payg" and "Pay As You Go" or "Periodic Billing"
   centreText(6, "Current plan: " .. curLabel, colors.white)
   centreText(7, "Switch to:    " .. newLabel, colors.cyan)
   hline(9)
@@ -376,12 +433,15 @@ local function drawPlanChangeScreen()
   end
   local btnW = math.floor(W/2) - 3
   local mid  = math.floor(W/2)
-  addButton(2, 15, 2+btnW, 15, "CONFIRM SWITCH", colors.black, colors.lime, function()
+  addButton(2,     15, 2+btnW,     15, "CONFIRM SWITCH", colors.black, colors.lime, function()
     if data.billingModel == "periodic" and data.periodUsage > 0 then
       local charge = data.periodUsage * data.ratePerFE
       data.balance = data.balance - charge
       data.periodUsage = 0
-      if data.balance <= 0 then data.balance=0; if data.powerOn then setPower(false) end end
+      if data.balance <= 0 then
+        data.balance = 0
+        if data.powerOn then setPower(false) end
+      end
     end
     data.billingModel = newPlan; saveData(); planChangeActive = false
   end)
@@ -393,76 +453,157 @@ local function drawPlanChangeScreen()
   drawButtons()
 end
 
+local function drawTypeChangeScreen()
+  cls(); clearButtons()
+  centreText(2, "BEYOND ENERGY",         colors.yellow)
+  centreText(3, "Change Connection Type", colors.lightGray)
+  hline(4)
+  local curLabel = data.isProducer and "Producer" or "Consumer"
+  local newLabel = data.isProducer and "Consumer" or "Producer"
+  centreText(6, "Current type: " .. curLabel, colors.white)
+  centreText(7, "Switch to:    " .. newLabel, colors.cyan)
+  hline(9)
+  if data.isProducer then
+    centreText(10, "Switching will block export and",  colors.orange)
+    centreText(11, "enable grid import (LEFT side).",  colors.orange)
+  else
+    centreText(10, "Switching will block grid import", colors.orange)
+    centreText(11, "and enable export (RIGHT side).",  colors.orange)
+  end
+  centreText(12, "Switch takes effect immediately.", colors.lightGray)
+  hline(14)
+  local btnW = math.floor(W/2) - 3
+  local mid  = math.floor(W/2)
+  addButton(2,     15, 2+btnW,     15, "CONFIRM", colors.black, colors.lime, function()
+    data.isProducer = not data.isProducer
+    setPower(data.powerOn)
+    saveData(); typeChangeActive = false
+  end)
+  addButton(mid+1, 15, mid+1+btnW, 15, "CANCEL", colors.white, colors.red, function()
+    typeChangeActive = false
+  end)
+  hline(H-1)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
+  drawButtons()
+end
+
 -- ── Main meter screen ────────────────────────────────────────
-local function drawMeterScreen(rate)
-  rate = rate or 0
+local function drawMeterScreen(importRate, exportRate)
+  importRate = importRate or 0
+  exportRate = exportRate or 0
   cls(); clearButtons(); refreshSize()
+
   writeAt(1, 1, string.rep(" ", W), colors.black, colors.yellow)
   centreText(1, " BEYOND ENERGY METER ", colors.black, colors.yellow)
+
   writeAt(2, 2, " Customer: ", colors.lightGray)
   monitor.setTextColor(colors.white)
   monitor.write(data.playerName or "Unknown")
+
   writeAt(2, 3, " Plan:     ", colors.lightGray)
   monitor.setTextColor(colors.cyan)
   monitor.write(data.billingModel == "payg" and "Pay As You Go" or "Periodic Billing")
-  hline(4)
-  writeAt(2, 5, " Draw:     ", colors.lightGray)
-  monitor.setTextColor(colors.white)
-  monitor.write(formatFE(rate) .. "/t   ")
-  writeAt(2, 6, " Rate cap: ", colors.lightGray)
-  monitor.setTextColor(colors.gray)
-  local cap = detector.getTransferRateLimit and detector.getTransferRateLimit() or 0
-  monitor.write(cap >= MAX_FLOW and "Unlimited" or formatFE(cap).."/t")
-  hline(7)
-  writeAt(2, 8, " Balance:       ", colors.lightGray)
+
+  writeAt(2, 4, " Type:     ", colors.lightGray)
+  monitor.setTextColor(data.isProducer and colors.lime or colors.cyan)
+  monitor.write(data.isProducer and "Producer" or "Consumer")
+
+  hline(5)
+
+  if data.isProducer then
+    writeAt(2, 6, " Exporting: ", colors.lightGray)
+    monitor.setTextColor(colors.lime)
+    monitor.write(formatFE(exportRate) .. "/t   ")
+    writeAt(2, 7, " Earning:   ", colors.lightGray)
+    monitor.setTextColor(colors.lime)
+    monitor.write(string.format("%.4f LC/t   ", exportRate * data.ratePerFE * 0.75))
+  else
+    writeAt(2, 6, " Draw:     ", colors.lightGray)
+    monitor.setTextColor(colors.white)
+    monitor.write(formatFE(importRate) .. "/t   ")
+    writeAt(2, 7, " Rate cap: ", colors.lightGray)
+    monitor.setTextColor(colors.gray)
+    local cap = importDetector and importDetector.getTransferRateLimit and importDetector.getTransferRateLimit() or 0
+    monitor.write(cap >= MAX_FLOW and "Unlimited" or formatFE(cap).."/t")
+  end
+
+  hline(8)
+
+  writeAt(2, 9, " Balance:       ", colors.lightGray)
   local balCol = data.balance > WARN_BALANCE and colors.lime
               or (data.balance > 0 and colors.yellow or colors.red)
   monitor.setTextColor(balCol)
   monitor.write(formatCurrency(data.balance).."   ")
-  writeAt(2, 9, " Total consumed:", colors.lightGray)
+
+  writeAt(2, 10, " Total consumed:", colors.lightGray)
   monitor.setTextColor(colors.white)
   monitor.write(formatFE(data.totalConsumed).."   ")
-  if data.billingModel == "periodic" then
-    writeAt(2, 10, " Period usage:  ", colors.lightGray)
+
+  if data.isProducer then
+    writeAt(2, 11, " Total exported:", colors.lightGray)
+    monitor.setTextColor(colors.lime)
+    monitor.write(formatFE(data.totalExported).."   ")
+  elseif data.billingModel == "periodic" then
+    writeAt(2, 11, " Period usage:  ", colors.lightGray)
     monitor.setTextColor(colors.white)
     monitor.write(formatFE(data.periodUsage).."   ")
   end
-  hline(11)
-  if data.powerOn then
-    centreText(12, " ● POWER ON ", colors.black, colors.lime)
+
+  hline(12)
+
+  if data.isProducer then
+    if data.powerOn then
+      centreText(13, " ● EXPORTING TO GRID ", colors.black, colors.lime)
+    else
+      centreText(13, " ● EXPORT DISABLED ", colors.white, colors.red)
+    end
   else
-    centreText(12, " ● POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
+    if data.powerOn then
+      centreText(13, " ● POWER ON ", colors.black, colors.lime)
+    else
+      centreText(13, " ● POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
+    end
+    if data.balance <= WARN_BALANCE and data.balance > 0 then
+      centreText(14, "  Low balance - please top up soon  ", colors.black, colors.orange)
+    end
   end
-  if data.balance <= WARN_BALANCE and data.balance > 0 then
-    centreText(13, "  Low balance - please top up soon  ", colors.black, colors.orange)
-  end
+
   if updateAvailable then
     local label = " ** UPDATE AVAILABLE - TAP TO INSTALL ** "
     local bx    = math.floor((W - #label) / 2) + 1
-    addButton(bx, 14, bx + #label - 1, 14,
-      label, colors.black, colors.yellow, function()
-        doUpdate()
-      end)
-    centreText(14, label, colors.black, colors.yellow)
+    addButton(bx, 15, bx + #label - 1, 15, label, colors.black, colors.yellow, function()
+      doUpdate()
+    end)
+    centreText(15, label, colors.black, colors.yellow)
   end
+
   hline(H-3)
-  local btnW = math.floor((W-4)/3)
+  local btnW = math.floor((W-4)/4)
   local b2x  = 2 + btnW + 1
   local b3x  = b2x + btnW + 1
-  addButton(2, H-2, 2+btnW-1, H-2, "[TEMP] +"..TEMP_TOP_UP.." LC",
+  local b4x  = b3x + btnW + 1
+
+  addButton(2,   H-2, 2+btnW-1,   H-2, "[TEMP] +"..TEMP_TOP_UP.." LC",
     colors.black, colors.purple, function()
       data.balance = data.balance + TEMP_TOP_UP
-      if not data.powerOn and data.balance > 0 then setPower(true) end
+      if not data.isProducer and not data.powerOn and data.balance > 0 then setPower(true) end
       saveData()
     end)
   addButton(b2x, H-2, b2x+btnW-1, H-2, "CHANGE PLAN",
     colors.black, colors.cyan, function() planChangeActive = true end)
-  addButton(b3x, H-2, W-1, H-2,
-    data.powerOn and "CUT POWER" or "RESTORE",
+  addButton(b3x, H-2, b3x+btnW-1, H-2, "CHANGE TYPE",
+    colors.black, colors.orange, function() typeChangeActive = true end)
+  addButton(b4x, H-2, W-1,        H-2,
+    data.powerOn and (data.isProducer and "STOP EXPORT" or "CUT POWER")
+                 or  (data.isProducer and "START EXPORT" or "RESTORE"),
     colors.white, data.powerOn and colors.red or colors.green, function()
-      if data.powerOn then setPower(false)
-      elseif data.balance > 0 then setPower(true) end
+      if data.powerOn then
+        setPower(false)
+      elseif data.isProducer or data.balance > 0 then
+        setPower(true)
+      end
     end)
+
   hline(H-1)
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
@@ -491,9 +632,18 @@ local function runRegistration()
     elseif regStep == 2 then
       if e == "monitor_touch" then
         checkClick(ev[3], ev[4])
+        if data.billingModel then
+          regStep = 3; drawRegisterType(regName)
+        end
+      elseif e == "key" and ev[2] == keys.backspace then
+        regStep = 1; regName = ""; drawRegisterName()
+      end
+    elseif regStep == 3 then
+      if e == "monitor_touch" then
+        checkClick(ev[3], ev[4])
         if data.registered then break end
       elseif e == "key" and ev[2] == keys.backspace then
-        regStep=1; regName=""; drawRegisterName()
+        regStep = 2; data.billingModel = nil; drawRegisterPlan(regName)
       end
     end
   end
@@ -504,7 +654,7 @@ local ticksSincePeriod = 0
 local PERIOD_TICKS     = 1200
 
 local function doPaygBilling(fe)
-  data.balance      = data.balance - (fe * data.ratePerFE)
+  data.balance       = data.balance - (fe * data.ratePerFE)
   data.totalConsumed = data.totalConsumed + fe
   if data.balance <= 0 then
     data.balance = 0
@@ -529,42 +679,47 @@ local function doPeriodicBilling(fe)
   saveData()
 end
 
+local function doProducerBilling(fe)
+  data.balance       = data.balance + (fe * data.ratePerFE * 0.75)
+  data.totalExported = (data.totalExported or 0) + fe
+  saveData()
+end
+
 -- ── Main loop ────────────────────────────────────────────────
 local function mainLoop()
-  local lastBroadcast  = 0
+  local lastBroadcast   = 0
   local lastUpdateCheck = os.clock()
 
   while true do
-    local rate = detector.getTransferRate and detector.getTransferRate() or 0
+    local importRate = importDetector and importDetector.getTransferRate and importDetector.getTransferRate() or 0
+    local exportRate = exportDetector and exportDetector.getTransferRate and exportDetector.getTransferRate() or 0
 
-    -- DEBUG: print raw rate to terminal every tick
-    term.setCursorPos(1, 1)
-    term.clearLine()
-    term.setTextColor(colors.yellow)
-    term.write("DEBUG rate: " .. tostring(rate))
-    term.setTextColor(colors.white)
-
-    if rate > 0 and data.powerOn then
-      if data.billingModel == "payg" then doPaygBilling(rate)
-      else doPeriodicBilling(rate) end
+    if data.powerOn then
+      if data.isProducer then
+        if exportRate > 0 then doProducerBilling(exportRate) end
+      else
+        if importRate > 0 then
+          if data.billingModel == "payg" then doPaygBilling(importRate)
+          else doPeriodicBilling(importRate) end
+        end
+      end
     end
 
     local now = os.clock()
 
-    -- Periodic background update check
     if now - lastUpdateCheck >= UPDATE_EVERY then
       lastUpdateCheck = now
       backgroundUpdateCheck()
     end
 
-    -- Broadcast status periodically
     if now - lastBroadcast >= BROADCAST_EVERY then
-      broadcastStatus(rate)
+      broadcastStatus(importRate, exportRate)
       lastBroadcast = now
     end
 
-    if planChangeActive then drawPlanChangeScreen()
-    else drawMeterScreen(rate) end
+    if typeChangeActive then drawTypeChangeScreen()
+    elseif planChangeActive then drawPlanChangeScreen()
+    else drawMeterScreen(importRate, exportRate) end
 
     local timer = os.startTimer(POLL_INTERVAL)
     while true do
@@ -583,7 +738,6 @@ end
 -- ── Boot ─────────────────────────────────────────────────────
 loadData()
 
--- Assign temp name on very first boot
 if not data.playerName then
   data.playerName = "Meter-" .. os.getComputerID()
   saveData()
@@ -591,6 +745,16 @@ end
 
 monitor.setBackgroundColor(colors.black)
 monitor.clear()
-detector.setTransferRateLimit(data.powerOn and MAX_FLOW or 0)
+
+-- Apply correct detector limits on boot based on saved state
+if importDetector then
+  importDetector.setTransferRateLimit(
+    data.isProducer and 0 or (data.powerOn and MAX_FLOW or 0))
+end
+if exportDetector then
+  exportDetector.setTransferRateLimit(
+    data.isProducer and (data.powerOn and MAX_FLOW or 0) or 0)
+end
+
 if not data.registered then runRegistration() end
 mainLoop()
