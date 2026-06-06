@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.8"
+local VERSION      = "2.9"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -180,12 +180,27 @@ local function checkClick(x, y)
 end
 
 -- ── PIN lock ─────────────────────────────────────────────────
-local ADMIN_PIN     = "1234"   -- change this
+local ADMIN_PIN     = "1234"   -- default; overridden by PIN_FILE on boot
+local PIN_FILE      = "admin_pin"
 local LOCK_TIMEOUT  = 300      -- seconds of inactivity before auto-lock
 local pinUnlocked   = false
 local pinInput      = ""
 local pinError      = false
 local lastActivity  = 0
+
+local function loadPin()
+  if fs.exists(PIN_FILE) then
+    local f = fs.open(PIN_FILE, "r")
+    local p = f.readAll(); f.close()
+    if p and p:match("^%d+$") then ADMIN_PIN = p end
+  end
+end
+
+local function savePin(pin)
+  local f = fs.open(PIN_FILE, "w")
+  f.write(pin); f.close()
+  ADMIN_PIN = pin
+end
 
 local function touchActivity() lastActivity = os.clock() end
 
@@ -628,9 +643,10 @@ local function drawRateScreen()
   centreText(10, "Type new rate then press ENTER", colors.lightGray)
   centreText(11, "e.g. 0.000001", colors.gray)
   centreText(13, "> " .. rateInput .. "_", colors.lime)
-  hline(H-3)
-  local bw = math.floor(W/2) - 3
-  addButton(2,     H-2, 2+bw,   H-2, "BROADCAST",
+  hline(H-4)
+  local bw  = math.floor((W - 6) / 3)
+  local mid  = 2 + bw + 1
+  addButton(2,       H-3, 2+bw,     H-3, "BROADCAST",
     colors.black, colors.lime, function()
       local n = tonumber(rateInput)
       if n and n > 0 then
@@ -639,7 +655,41 @@ local function drawRateScreen()
         rateInput = ""; currentScreen = "dashboard"
       end
     end)
-  addButton(W-bw-1, H-2, W-1, H-2, "CANCEL",
+  addButton(mid,     H-3, mid+bw,   H-3, "CHG PIN",
+    colors.black, colors.gray, function()
+      rateInput = ""
+      term.setTextColor(colors.yellow)
+      print("\n-- Change Admin PIN --")
+      term.setTextColor(colors.lightGray); term.write("Current PIN: ")
+      term.setTextColor(colors.white)
+      local cur = io.read()
+      if cur ~= ADMIN_PIN then
+        term.setTextColor(colors.red); print("Incorrect PIN.")
+        term.setTextColor(colors.white); return
+      end
+      local new1
+      while true do
+        term.setTextColor(colors.lightGray); term.write("New PIN (4-8 digits): ")
+        term.setTextColor(colors.white)
+        new1 = io.read()
+        if new1:match("^%d+$") and #new1 >= 4 and #new1 <= 8 then break end
+        term.setTextColor(colors.red); print("Must be 4-8 digits.")
+        term.setTextColor(colors.white)
+      end
+      while true do
+        term.setTextColor(colors.lightGray); term.write("Confirm new PIN: ")
+        term.setTextColor(colors.white)
+        local new2 = io.read()
+        if new2 == new1 then break end
+        term.setTextColor(colors.red); print("PINs don't match. Try again.")
+        term.setTextColor(colors.white)
+      end
+      savePin(new1)
+      term.setTextColor(colors.lime); print("PIN updated.")
+      term.setTextColor(colors.white)
+      currentScreen = "dashboard"
+    end)
+  addButton(mid+bw+1, H-3, W-1,    H-3, "CANCEL",
     colors.white, colors.red, function() rateInput=""; currentScreen="dashboard" end)
   hline(H-1)
   drawUpdateBanner()
@@ -780,6 +830,7 @@ local function mainLoop()
 end
 
 -- ── Boot ─────────────────────────────────────────────────────
+loadPin()
 W, H = monitor.getSize()
 monitor.setBackgroundColor(colors.black)
 monitor.clear()

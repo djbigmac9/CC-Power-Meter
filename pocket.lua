@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Pocket Monitor v1.7
+--  BeyondSMP Pocket Monitor
 --  Advanced Pocket Computer + Ender Modem
 -- ============================================================
 
@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.4"
+local VERSION      = "2.6"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -20,12 +20,27 @@ end
 modem.open(STATUS_CH)
 
 -- ── PIN lock ─────────────────────────────────────────────────
-local ADMIN_PIN    = "1234"   -- change this
+local ADMIN_PIN    = "1234"   -- default; overridden by PIN_FILE on boot
+local PIN_FILE     = "pocket_pin"
 local LOCK_TIMEOUT = 300      -- seconds of inactivity before auto-lock
 local pinUnlocked  = false
 local pinInput     = ""
 local pinError     = false
 local lastActivity = 0
+
+local function loadPin()
+  if fs.exists(PIN_FILE) then
+    local f = fs.open(PIN_FILE, "r")
+    local p = f.readAll(); f.close()
+    if p and p:match("^%d+$") then ADMIN_PIN = p end
+  end
+end
+
+local function savePin(pin)
+  local f = fs.open(PIN_FILE, "w")
+  f.write(pin); f.close()
+  ADMIN_PIN = pin
+end
 
 local function touchActivity() lastActivity = os.clock() end
 
@@ -256,10 +271,17 @@ local function drawList()
   -- Header
   at(1, 1, string.rep(" ", W), colors.black, colors.yellow)
   at(1, 1, "BEYOND ENERGY v"..VERSION, colors.black, colors.yellow)
+  -- LOCK button fixed on far right
+  local lockLabel = "[LOCK]"
+  at(W - #lockLabel + 1, 1, lockLabel, colors.black, colors.yellow)
+  table.insert(btns, {x1=W-#lockLabel+1, x2=W, y=1, fn=function()
+    pinUnlocked = false; pinInput = ""; pinError = false
+  end})
   if #alerts > 0 then
     local ind = "["..#alerts.."]"
-    at(W - #ind + 1, 1, ind, colors.black, colors.orange)
-    table.insert(btns, {x1=W-#ind+1, x2=W, y=1, fn=function()
+    local indX = W - #lockLabel - #ind
+    at(indX, 1, ind, colors.black, colors.orange)
+    table.insert(btns, {x1=indX, x2=indX+#ind-1, y=1, fn=function()
       screen = "alerts"
     end})
   end
@@ -304,13 +326,43 @@ local function drawList()
 
   drawUpdateBanner()
   hline(H - 1)
-  local bw = math.floor(W / 3)
+  local bw = math.floor(W / 4)
   btn(1,      H, bw,     "CUT ALL",  colors.white, colors.red,    function()
     broadcast("cut"); pushAlert("All meters cut") end)
   btn(bw+1,   H, bw*2,   "REST ALL", colors.black, colors.green,  function()
     broadcast("restore"); pushAlert("All meters restored") end)
-  btn(bw*2+1, H, W,      "UPD ALL",  colors.black, colors.purple, function()
+  btn(bw*2+1, H, bw*3,   "UPD ALL",  colors.black, colors.purple, function()
     broadcast("update"); pushAlert("Update sent to all meters") end)
+  btn(bw*3+1, H, W,      "CHG PIN",  colors.black, colors.gray, function()
+    cls()
+    at(1, 1, "CHANGE PIN", colors.yellow)
+    hline(2)
+    at(1, 3, "Current PIN:", colors.lightGray)
+    term.setCursorPos(1, 4); term.setTextColor(colors.white)
+    local cur = io.read()
+    if cur ~= ADMIN_PIN then
+      at(1, 5, "Incorrect PIN.", colors.red); os.sleep(1.5)
+      screen = "list"; return
+    end
+    at(1, 5, "New PIN (4-8 digits):", colors.lightGray)
+    local new1, new2
+    while true do
+      term.setCursorPos(1, 6); term.setTextColor(colors.white)
+      new1 = io.read()
+      if new1:match("^%d+$") and #new1 >= 4 and #new1 <= 8 then break end
+      at(1, 7, "Must be 4-8 digits.", colors.red)
+    end
+    at(1, 7, "Confirm new PIN:     ", colors.lightGray)
+    while true do
+      term.setCursorPos(1, 8); term.setTextColor(colors.white)
+      new2 = io.read()
+      if new2 == new1 then break end
+      at(1, 9, "PINs don't match.", colors.red)
+    end
+    savePin(new1)
+    at(1, 9, "PIN updated!        ", colors.lime)
+    os.sleep(1.5); screen = "list"
+  end)
 end
 
 -- ── DETAIL SCREEN ─────────────────────────────────────────────
@@ -518,6 +570,7 @@ local function redraw()
   term.setTextColor(colors.white)
 end
 
+loadPin()
 bootUpdateCheck()
 redraw()
 
