@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.0"
+local VERSION      = "2.2"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -301,22 +301,38 @@ local function drawDetail()
   at(10, 9, online and "Online" or "OFFLINE",
     online and colors.lime or colors.red)
 
-  hline(10)
+  local o = 0  -- row offset per extra periodic row shown
+  if not m.isProducer and m.plan == "periodic" then
+    if m.periodCost then
+      at(1, 10 + o, "Cost:    ", colors.gray)
+      at(10, 10 + o, string.format("%.4f LC", m.periodCost), colors.orange)
+      o = o + 1
+    end
+    if m.billSecsLeft then
+      local mins = math.floor(m.billSecsLeft / 60)
+      local secs = m.billSecsLeft % 60
+      at(1, 10 + o, "Next:    ", colors.gray)
+      at(10, 10 + o, string.format("%dm %02ds", mins, secs), colors.cyan)
+      o = o + 1
+    end
+  end
+
+  hline(10 + o)
 
   -- Power status bar
   if m.powerOn then
-    at(1, 11, string.rep(" ", W), colors.black, colors.lime)
-    at(1, 11, "  POWER ON", colors.black, colors.lime)
+    at(1, 11 + o, string.rep(" ", W), colors.black, colors.lime)
+    at(1, 11 + o, "  POWER ON", colors.black, colors.lime)
   else
-    at(1, 11, string.rep(" ", W), colors.white, colors.red)
-    at(1, 11, "  POWER OFF", colors.white, colors.red)
+    at(1, 11 + o, string.rep(" ", W), colors.white, colors.red)
+    at(1, 11 + o, "  POWER OFF", colors.white, colors.red)
   end
 
-  hline(12)
+  hline(12 + o)
 
   -- Action buttons
   local bw = math.floor(W / 2)
-  btn(1,    13, bw,   m.powerOn and "CUT" or "RESTORE",
+  btn(1,    13 + o, bw,   m.powerOn and "CUT" or "RESTORE",
     colors.white, m.powerOn and colors.red or colors.green,
     function()
       if m.powerOn then
@@ -328,7 +344,7 @@ local function drawDetail()
       end
     end)
 
-  btn(bw+1, 13, W,    "+500 LC",
+  btn(bw+1, 13 + o, W,    "+500 LC",
     colors.black, colors.lime, function()
       local nb = bal + 500
       sendCmd(selected, "setbalance", nb)
@@ -336,7 +352,7 @@ local function drawDetail()
       m.balance = nb
     end)
 
-  btn(1,    14, bw,   "+100 LC",
+  btn(1,    14 + o, bw,   "+100 LC",
     colors.black, colors.lime, function()
       local nb = bal + 100
       sendCmd(selected, "setbalance", nb)
@@ -344,7 +360,7 @@ local function drawDetail()
       m.balance = nb
     end)
 
-  btn(bw+1, 14, W,    "TOGGLE CAP",
+  btn(bw+1, 14 + o, W,    "TOGGLE CAP",
     colors.black, colors.cyan, function()
       local nc = (m.cap or 0) >= MAX_FLOW and 10000 or MAX_FLOW
       sendCmd(selected, "setcap", nc)
@@ -353,13 +369,13 @@ local function drawDetail()
       m.cap = nc
     end)
 
-  btn(1,    15, W,    "UPDATE METER",
+  btn(1,    15 + o, W,    "UPDATE METER",
     colors.black, colors.purple, function()
       sendCmd(selected, "update")
       pushAlert("Update sent to "..(m.player or selected))
     end)
 
-  btn(1,    16, W,    "RENAME",
+  btn(1,    16 + o, W,    "RENAME",
     colors.black, colors.orange, function()
       cls()
       at(1, 1, "RENAME METER",   colors.orange)
@@ -376,7 +392,7 @@ local function drawDetail()
       screen = "detail"
     end)
 
-  btn(1,    17, W,    "CHG PLAN",
+  btn(1,    17 + o, W,    "CHG PLAN",
     colors.black, colors.yellow, function()
       local newPlan  = (m.plan == "payg") and "periodic" or "payg"
       local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
@@ -385,7 +401,7 @@ local function drawDetail()
       m.plan = newPlan
     end)
 
-  btn(1,    18, W,
+  btn(1,    18 + o, W,
     m.isProducer and "TYPE: PRODUCER -> CONSUMER" or "TYPE: CONSUMER -> PRODUCER",
     colors.black, colors.orange, function()
       local newType = not m.isProducer
