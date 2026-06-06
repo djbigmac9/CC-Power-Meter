@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.7"
+local VERSION      = "3.8"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -598,11 +598,11 @@ local function drawMeterScreen(importRate, exportRate)
     infoRow(10, "Total consumed", formatFE(data.totalConsumed) .. " FE", colors.white)
   end
 
-  local statusRow = nextRow
-  local warnRow   = nextRow + 1
-  local updRow    = nextRow + 2
+  hline(nextRow, "\140")
 
-  hline(statusRow - 1, "\140")
+  local statusRow = nextRow + 1
+  local warnRow   = nextRow + 2
+  local updRow    = nextRow + 3
 
   -- Full-width power status bar
   if data.isProducer then
