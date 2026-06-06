@@ -244,6 +244,39 @@ local function download(machine)
   local body = res.readAll(); res.close()
   local version = body:match('VERSION%s*=%s*"([%d%.]+)"') or "?"
 
+  -- PIN prompt for admin/pocket machines
+  if machine.key == "admin" or machine.key == "pocket" then
+    hline()
+    print()
+    term.setTextColor(colors.white)
+    print("  Set an Admin PIN for this terminal.")
+    term.setTextColor(colors.lightGray)
+    print("  This PIN will be required to unlock the interface.")
+    print("  (digits only, 4-8 characters)")
+    print()
+    local pin = ""
+    while true do
+      pin = prompt("  Enter PIN: ")
+      if pin:match("^%d+$") and #pin >= 4 and #pin <= 8 then break end
+      term.setTextColor(colors.red)
+      print("  PIN must be 4-8 digits. Try again.")
+      term.setTextColor(colors.white)
+    end
+    local confirm = prompt("  Confirm PIN: ")
+    if confirm ~= pin then
+      term.setTextColor(colors.red)
+      print("  PINs do not match - using default 1234.")
+      term.setTextColor(colors.white)
+      pin = "1234"
+    else
+      term.setTextColor(colors.lime)
+      print("  PIN set.")
+      term.setTextColor(colors.white)
+    end
+    body = body:gsub('ADMIN_PIN%s*=%s*"[^"]*"', 'ADMIN_PIN = "' .. pin .. '"', 1)
+    print()
+  end
+
   local f = fs.open(machine.file, "w")
   f.write(body); f.close()
 
