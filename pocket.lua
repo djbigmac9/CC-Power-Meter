@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "1.8"
+local VERSION      = "1.9"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -263,39 +263,50 @@ local function drawDetail()
   at(1, 3,  "Plan:    ", colors.gray)
   at(10, 3, m.plan == "payg" and "Pay As You Go" or "Periodic", colors.cyan)
 
-  at(1, 4,  "Balance: ", colors.gray)
-  at(10, 4, fmtLC(bal), balFg)
+  at(1, 4,  "Type:    ", colors.gray)
+  at(10, 4, m.isProducer and "Producer" or "Consumer",
+    m.isProducer and colors.yellow or colors.cyan)
 
-  at(1, 5,  "Draw:    ", colors.gray)
-  at(10, 5, formatFE(m.draw or 0).." FE/t", colors.white)
+  at(1, 5,  "Balance: ", colors.gray)
+  at(10, 5, fmtLC(bal), balFg)
 
-  at(1, 6,  "Cap:     ", colors.gray)
-  at(10, 6, (m.cap or 0) >= MAX_FLOW and "Unlimited"
+  if m.isProducer then
+    at(1, 6,  "Export:  ", colors.gray)
+    at(10, 6, formatFE(m.exportRate or 0).." FE/t", colors.yellow)
+  else
+    at(1, 6,  "Draw:    ", colors.gray)
+    at(10, 6, formatFE(m.draw or 0).." FE/t", colors.white)
+  end
+
+  at(1, 7,  "Cap:     ", colors.gray)
+  at(10, 7, (m.cap or 0) >= MAX_FLOW and "Unlimited"
             or formatFE(m.cap or 0).." FE/t", colors.gray)
 
-  at(1, 7,  "Total:   ", colors.gray)
-  at(10, 7, formatFE(m.total or 0).." FE", colors.gray)
+  at(1, 8,  "Total:   ", colors.gray)
+  at(10, 8, m.isProducer
+            and formatFE(m.totalExported or 0).." FE out"
+            or  formatFE(m.total or 0).." FE", colors.gray)
 
-  at(1, 8,  "Status:  ", colors.gray)
-  at(10, 8, online and "Online" or "OFFLINE",
+  at(1, 9,  "Status:  ", colors.gray)
+  at(10, 9, online and "Online" or "OFFLINE",
     online and colors.lime or colors.red)
 
-  hline(9)
+  hline(10)
 
   -- Power status bar
   if m.powerOn then
-    at(1, 10, string.rep(" ", W), colors.black, colors.lime)
-    at(1, 10, "  POWER ON", colors.black, colors.lime)
+    at(1, 11, string.rep(" ", W), colors.black, colors.lime)
+    at(1, 11, "  POWER ON", colors.black, colors.lime)
   else
-    at(1, 10, string.rep(" ", W), colors.white, colors.red)
-    at(1, 10, "  POWER OFF", colors.white, colors.red)
+    at(1, 11, string.rep(" ", W), colors.white, colors.red)
+    at(1, 11, "  POWER OFF", colors.white, colors.red)
   end
 
-  hline(11)
+  hline(12)
 
   -- Action buttons
   local bw = math.floor(W / 2)
-  btn(1,    12, bw,   m.powerOn and "CUT" or "RESTORE",
+  btn(1,    13, bw,   m.powerOn and "CUT" or "RESTORE",
     colors.white, m.powerOn and colors.red or colors.green,
     function()
       if m.powerOn then
@@ -307,7 +318,7 @@ local function drawDetail()
       end
     end)
 
-  btn(bw+1, 12, W,    "+500 LC",
+  btn(bw+1, 13, W,    "+500 LC",
     colors.black, colors.lime, function()
       local nb = bal + 500
       sendCmd(selected, "setbalance", nb)
@@ -315,7 +326,7 @@ local function drawDetail()
       m.balance = nb
     end)
 
-  btn(1,    13, bw,   "+100 LC",
+  btn(1,    14, bw,   "+100 LC",
     colors.black, colors.lime, function()
       local nb = bal + 100
       sendCmd(selected, "setbalance", nb)
@@ -323,7 +334,7 @@ local function drawDetail()
       m.balance = nb
     end)
 
-  btn(bw+1, 13, W,    "TOGGLE CAP",
+  btn(bw+1, 14, W,    "TOGGLE CAP",
     colors.black, colors.cyan, function()
       local nc = (m.cap or 0) >= MAX_FLOW and 10000 or MAX_FLOW
       sendCmd(selected, "setcap", nc)
@@ -332,13 +343,13 @@ local function drawDetail()
       m.cap = nc
     end)
 
-  btn(1,    14, W,    "UPDATE METER",
+  btn(1,    15, W,    "UPDATE METER",
     colors.black, colors.purple, function()
       sendCmd(selected, "update")
       pushAlert("Update sent to "..(m.player or selected))
     end)
 
-  btn(1,    15, W,    "RENAME",
+  btn(1,    16, W,    "RENAME",
     colors.black, colors.orange, function()
       cls()
       at(1, 1, "RENAME METER",   colors.orange)
@@ -355,13 +366,23 @@ local function drawDetail()
       screen = "detail"
     end)
 
-  btn(1,    16, W,    "CHG PLAN",
+  btn(1,    17, W,    "CHG PLAN",
     colors.black, colors.yellow, function()
       local newPlan  = (m.plan == "payg") and "periodic" or "payg"
       local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
       sendCmd(selected, "setplan", newPlan)
       pushAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(selected)))
       m.plan = newPlan
+    end)
+
+  btn(1,    18, W,
+    m.isProducer and "TYPE: PRODUCER -> CONSUMER" or "TYPE: CONSUMER -> PRODUCER",
+    colors.black, colors.orange, function()
+      local newType = not m.isProducer
+      sendCmd(selected, "settype", newType and "producer" or "consumer")
+      pushAlert("Type -> "..(newType and "Producer" or "Consumer")
+        ..": "..(m.player or tostring(selected)))
+      m.isProducer = newType
     end)
 
   hline(H-1)
