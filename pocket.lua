@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.2"
+local VERSION      = "2.3"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -20,11 +20,18 @@ end
 modem.open(STATUS_CH)
 
 -- ── State ────────────────────────────────────────────────────
-local meters   = {}
-local alerts   = {}
-local screen   = "list"
-local selected = nil
-local W, H     = term.getSize()
+local meters         = {}
+local alerts         = {}
+local screen         = "list"
+local selected       = nil
+local W, H           = term.getSize()
+local confirmPending = nil  -- {lines={}, action=fn, returnScreen=str}
+
+local function confirm(lines, action, returnScreen)
+  if type(lines) == "string" then lines = {lines} end
+  confirmPending = {lines=lines, action=action, returnScreen=returnScreen or screen}
+  screen = "confirm"
+end
 
 -- ── Helpers ──────────────────────────────────────────────────
 local function cls()
@@ -186,6 +193,34 @@ local function sorted()
   return t
 end
 
+-- ── CONFIRM SCREEN ────────────────────────────────────────────
+local function drawConfirm()
+  if not confirmPending then screen = "list"; return end
+  cls(); clearBtns()
+  at(1, 1, string.rep(" ", W), colors.white, colors.red)
+  at(1, 1, "CONFIRM", colors.white, colors.red)
+  hline(2)
+  for i, line in ipairs(confirmPending.lines) do
+    at(1, 2 + i, line, colors.white)
+  end
+  hline(H - 3)
+  local bw = math.floor(W / 2)
+  btn(1,    H-2, bw,   "CONFIRM", colors.black, colors.lime, function()
+    confirmPending.action()
+    screen         = confirmPending.returnScreen
+    confirmPending = nil
+  end)
+  btn(bw+1, H-2, W,    "CANCEL",  colors.white, colors.red, function()
+    screen         = confirmPending.returnScreen
+    confirmPending = nil
+  end)
+  hline(H-1)
+  btn(1, H, W, "< BACK", colors.black, colors.gray, function()
+    screen         = confirmPending.returnScreen
+    confirmPending = nil
+  end)
+end
+
 -- ── LIST SCREEN ───────────────────────────────────────────────
 local function drawList()
   cls(); clearBtns()
@@ -243,11 +278,18 @@ local function drawList()
   hline(H - 1)
   local bw = math.floor(W / 3)
   btn(1,      H, bw,     "CUT ALL",  colors.white, colors.red,    function()
-    broadcast("cut"); pushAlert("All meters cut") end)
+    confirm({"Cut ALL meters?"}, function()
+      broadcast("cut"); pushAlert("All meters cut")
+    end, "list")
+  end)
   btn(bw+1,   H, bw*2,   "REST ALL", colors.black, colors.green,  function()
-    broadcast("restore"); pushAlert("All meters restored") end)
+    broadcast("restore"); pushAlert("All meters restored")
+  end)
   btn(bw*2+1, H, W,      "UPD ALL",  colors.black, colors.purple, function()
-    broadcast("update"); pushAlert("Update sent to all meters") end)
+    confirm({"Update ALL meters?", "They will reboot."}, function()
+      broadcast("update"); pushAlert("Update sent to all meters")
+    end, "list")
+  end)
 end
 
 -- ── DETAIL SCREEN ─────────────────────────────────────────────
@@ -336,8 +378,10 @@ local function drawDetail()
     colors.white, m.powerOn and colors.red or colors.green,
     function()
       if m.powerOn then
-        sendCmd(selected, "cut")
-        pushAlert("Cut: "..(m.player or selected))
+        confirm({"Cut power for "..(m.player or tostring(selected)).."?"}, function()
+          sendCmd(selected, "cut")
+          pushAlert("Cut: "..(m.player or selected))
+        end, "detail")
       else
         sendCmd(selected, "restore")
         pushAlert("Restored: "..(m.player or selected))
@@ -371,8 +415,10 @@ local function drawDetail()
 
   btn(1,    15 + o, W,    "UPDATE METER",
     colors.black, colors.purple, function()
-      sendCmd(selected, "update")
-      pushAlert("Update sent to "..(m.player or selected))
+      confirm({"Update "..(m.player or tostring(selected)).."?", "Meter will reboot."}, function()
+        sendCmd(selected, "update")
+        pushAlert("Update sent to "..(m.player or selected))
+      end, "detail")
     end)
 
   btn(1,    16 + o, W,    "RENAME",
@@ -385,30 +431,38 @@ local function drawDetail()
       term.setTextColor(colors.lime)
       local name = io.read()
       if name and #name > 0 then
-        sendCmd(selected, "setname", name)
-        pushAlert("Renamed to: " .. name)
-        m.player = name
+        confirm({"Rename to '"..name.."'?"}, function()
+          sendCmd(selected, "setname", name)
+          pushAlert("Renamed to: " .. name)
+          m.player = name
+        end, "detail")
+      else
+        screen = "detail"
       end
-      screen = "detail"
     end)
 
   btn(1,    17 + o, W,    "CHG PLAN",
     colors.black, colors.yellow, function()
       local newPlan  = (m.plan == "payg") and "periodic" or "payg"
       local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
-      sendCmd(selected, "setplan", newPlan)
-      pushAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(selected)))
-      m.plan = newPlan
+      confirm({"Change plan for "..(m.player or tostring(selected)).."?",
+               "New plan: "..newLabel}, function()
+        sendCmd(selected, "setplan", newPlan)
+        pushAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(selected)))
+        m.plan = newPlan
+      end, "detail")
     end)
 
   btn(1,    18 + o, W,
     m.isProducer and "TYPE: PRODUCER -> CONSUMER" or "TYPE: CONSUMER -> PRODUCER",
     colors.black, colors.orange, function()
-      local newType = not m.isProducer
-      sendCmd(selected, "settype", newType and "producer" or "consumer")
-      pushAlert("Type -> "..(newType and "Producer" or "Consumer")
-        ..": "..(m.player or tostring(selected)))
-      m.isProducer = newType
+      local newType  = not m.isProducer
+      local newLabel = newType and "Producer" or "Consumer"
+      confirm({"Switch "..(m.player or tostring(selected)).." to "..newLabel.."?"}, function()
+        sendCmd(selected, "settype", newType and "producer" or "consumer")
+        pushAlert("Type -> "..newLabel..": "..(m.player or tostring(selected)))
+        m.isProducer = newType
+      end, "detail")
     end)
 
   drawUpdateBanner()
@@ -445,9 +499,10 @@ end
 
 -- ── Redraw ────────────────────────────────────────────────────
 local function redraw()
-  if     screen == "list"   then drawList()
-  elseif screen == "detail" then drawDetail()
-  elseif screen == "alerts" then drawAlerts()
+  if     screen == "confirm" then drawConfirm()
+  elseif screen == "list"    then drawList()
+  elseif screen == "detail"  then drawDetail()
+  elseif screen == "alerts"  then drawAlerts()
   end
   term.setBackgroundColor(colors.black)
   term.setTextColor(colors.white)
