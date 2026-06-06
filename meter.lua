@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v2.8
+--  BeyondSMP Electric Meter v2.9
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.8"
+local VERSION      = "2.9"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
