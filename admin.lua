@@ -1,13 +1,14 @@
 -- ============================================================
---  BeyondSMP Admin Panel v1.7
+--  BeyondSMP Admin Panel v1.9
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
 --    Ender Modem     = any side
+--    Chat Box        = any side (optional, AP - enables player whispers)
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "1.8"
+local VERSION      = "1.9"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -87,8 +88,9 @@ local DEFAULT_RATE  = 0.0001
 
 -- ── Peripherals ──────────────────────────────────────────────
 local detector, detectorSide
-local monitor = peripheral.find("monitor")
-local modem   = peripheral.find("modem")
+local monitor  = peripheral.find("monitor")
+local modem    = peripheral.find("modem")
+local chatBox  = peripheral.find("chatBox")
 
 for _, side in ipairs({"top","bottom","left","right","front","back"}) do
   if peripheral.isPresent(side) and peripheral.getType(side) == "energy_detector" then
@@ -207,6 +209,14 @@ end
 local function addAlert(msg)
   table.insert(alerts, 1, "[" .. textutils.formatTime(os.time()) .. "] " .. msg)
   if #alerts > 20 then table.remove(alerts) end
+end
+
+local function whisper(player, msg)
+  if chatBox and player then
+    pcall(function()
+      chatBox.sendMessageToPlayer(msg, player, "Beyond Energy")
+    end)
+  end
 end
 
 -- ── Dashboard ────────────────────────────────────────────────
@@ -405,14 +415,22 @@ local function drawCustomerScreen()
   addButton(2,       H-4, 1+bw,   H-4,
     m.powerOn and "CUT POWER" or "RESTORE",
     colors.white, m.powerOn and colors.red or colors.green, function()
-      if m.powerOn then sendCommand(id,"cut"); addAlert("Cut: "..(m.player or id))
-      else sendCommand(id,"restore"); addAlert("Restored: "..(m.player or id)) end
+      if m.powerOn then
+        sendCommand(id, "cut")
+        addAlert("Cut: "..(m.player or id))
+        whisper(m.player, "Your power supply has been cut by an administrator. Please contact Beyond Energy if you believe this is an error.")
+      else
+        sendCommand(id, "restore")
+        addAlert("Restored: "..(m.player or id))
+        whisper(m.player, "Your power supply has been restored.")
+      end
     end)
   addButton(2+bw,    H-4, 1+bw*2, H-4, "+500 LC",
     colors.black, colors.lime, function()
       local nb = (m.balance or 0) + 500
       sendCommand(id, "setbalance", nb)
       addAlert("Added 500 LC to "..(m.player or id))
+      whisper(m.player, "500 LC has been added to your account. New balance: "..formatCurrency(nb).." LC.")
       m.balance = nb
     end)
   addButton(2+bw*2,  H-4, W,      H-4, "TOGGLE CAP",
@@ -561,10 +579,12 @@ local function mainLoop()
           if msg.balance and msg.balance <= 50 and msg.balance > 0 then
             if not was or not was.balance or was.balance > 50 then
               addAlert("Low bal: "..(msg.player or id).." ("..formatCurrency(msg.balance).." LC)")
+              whisper(msg.player, "Low balance warning: "..formatCurrency(msg.balance).." LC remaining. Please top up to avoid a power cut.")
             end
           end
           if was and was.powerOn and not msg.powerOn then
             addAlert("Power cut: "..(msg.player or id))
+            whisper(msg.player, "Your power supply has been cut. Please top up your balance to reconnect.")
           end
         end
 
