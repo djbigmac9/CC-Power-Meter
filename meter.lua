@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.1"
+local VERSION      = "3.2"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -268,7 +268,7 @@ local function handleCommand(msg)
       data.balance     = data.balance - charge
       data.periodUsage = 0
       ticksSincePeriod = 0
-      if data.balance <= 0 then data.balance = 0 end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = becomingProducer
     setPower(data.powerOn)
@@ -459,10 +459,7 @@ local function drawPlanChangeScreen()
       local charge = data.periodUsage * data.ratePerFE
       data.balance = data.balance - charge
       data.periodUsage = 0
-      if data.balance <= 0 then
-        data.balance = 0
-        if data.powerOn then setPower(false) end
-      end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.billingModel = newPlan; saveData(); planChangeActive = false
   end)
@@ -509,10 +506,7 @@ local function drawTypeChangeScreen()
       data.balance     = data.balance - charge
       data.periodUsage = 0
       ticksSincePeriod = 0
-      if data.balance <= 0 then
-        data.balance = 0
-        if data.powerOn then setPower(false) end
-      end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = not data.isProducer
     setPower(data.powerOn)
@@ -615,10 +609,14 @@ local function drawMeterScreen(importRate, exportRate)
   else
     if data.powerOn then
       centreText(statusRow, " ● POWER ON ", colors.black, colors.lime)
+    elseif data.balance < 0 then
+      centreText(statusRow, " ● POWER OFF - DEBT MUST BE CLEARED ", colors.white, colors.red)
     else
       centreText(statusRow, " ● POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
     end
-    if data.balance <= WARN_BALANCE and data.balance > 0 then
+    if data.balance < 0 then
+      centreText(warnRow, "  Outstanding debt - top up to restore  ", colors.black, colors.red)
+    elseif data.balance <= WARN_BALANCE and data.balance > 0 then
       centreText(warnRow, "  Low balance - please top up soon  ", colors.black, colors.orange)
     end
   end
@@ -641,10 +639,7 @@ local function drawMeterScreen(importRate, exportRate)
       data.balance     = data.balance - charge
       data.periodUsage = 0
       ticksSincePeriod = 0
-      if data.balance <= 0 then
-        data.balance = 0
-        if data.powerOn then setPower(false) end
-      end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
       saveData()
       immediateRedraw = true
     end)
@@ -729,10 +724,7 @@ end
 local function doPaygBilling(fe)
   data.balance       = data.balance - (fe * data.ratePerFE)
   data.totalConsumed = data.totalConsumed + fe
-  if data.balance <= 0 then
-    data.balance = 0
-    if data.powerOn then setPower(false) end
-  end
+  if data.balance <= 0 and data.powerOn then setPower(false) end
   saveData()
 end
 
@@ -744,10 +736,7 @@ local function doPeriodicBilling(fe)
     data.balance     = data.balance - (data.periodUsage * data.ratePerFE)
     data.periodUsage = 0
     ticksSincePeriod = 0
-    if data.balance <= 0 then
-      data.balance = 0
-      if data.powerOn then setPower(false) end
-    end
+    if data.balance <= 0 and data.powerOn then setPower(false) end
   end
   saveData()
 end
