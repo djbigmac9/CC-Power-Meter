@@ -313,7 +313,7 @@ local function drawRegisterName()
   centreText(9,  "then press ENTER.", colors.lightGray)
   centreText(11, "> " .. regName .. "_", colors.lime)
   hline(H-1)
-  centreText(H, "Beyond Energy Co. | BeyondSMP", colors.gray)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
 
@@ -345,7 +345,7 @@ local function drawRegisterPlan(name)
     data.playerName=name; data.billingModel="periodic"; data.registered=true; setPower(true); saveData()
   end)
   hline(H-1)
-  centreText(H, "Beyond Energy Co. | BeyondSMP", colors.gray)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
 
@@ -389,7 +389,7 @@ local function drawPlanChangeScreen()
     planChangeActive = false
   end)
   hline(H-1)
-  centreText(H, "Beyond Energy Co. | BeyondSMP", colors.gray)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
 
@@ -464,7 +464,7 @@ local function drawMeterScreen(rate)
       elseif data.balance > 0 then setPower(true) end
     end)
   hline(H-1)
-  centreText(H, "Beyond Energy Co. | BeyondSMP", colors.gray)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
 

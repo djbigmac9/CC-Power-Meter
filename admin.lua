@@ -343,7 +343,7 @@ local function drawDashboard()
     end)
 
   hline(H-1)
-  centreText(H, "Beyond Energy Co. | BeyondSMP  ID:"..os.getComputerID(), colors.gray)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION.."  ID:"..os.getComputerID(), colors.gray)
   drawButtons()
 
   -- Draw row text AFTER buttons so it isn't overwritten
@@ -484,7 +484,7 @@ local function drawRateScreen()
   addButton(W-bw-1, H-2, W-1, H-2, "CANCEL",
     colors.white, colors.red, function() rateInput=""; currentScreen="dashboard" end)
   hline(H-1)
-  centreText(H, "Beyond Energy Co. | BeyondSMP", colors.gray)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
 
@@ -507,7 +507,7 @@ local function drawAlertsScreen()
   addButton(2,       H-2, 2+bw,  H-2, "CLEAR ALL", colors.black, colors.red,  function() alerts={} end)
   addButton(W-bw-1,  H-2, W-1,   H-2, "< BACK",    colors.black, colors.gray, function() currentScreen="dashboard" end)
   hline(H-1)
-  centreText(H, "Beyond Energy Co. | BeyondSMP", colors.gray)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
 

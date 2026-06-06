@@ -183,7 +183,7 @@ local function drawList()
 
   -- Header
   at(1, 1, string.rep(" ", W), colors.black, colors.yellow)
-  at(1, 1, "BEYOND ENERGY", colors.black, colors.yellow)
+  at(1, 1, "BEYOND ENERGY v"..VERSION, colors.black, colors.yellow)
   if #alerts > 0 then
     local ind = "["..#alerts.."]"
     at(W - #ind + 1, 1, ind, colors.black, colors.orange)
