@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.5"
+local VERSION      = "2.6"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -271,10 +271,17 @@ local function drawList()
   -- Header
   at(1, 1, string.rep(" ", W), colors.black, colors.yellow)
   at(1, 1, "BEYOND ENERGY v"..VERSION, colors.black, colors.yellow)
+  -- LOCK button fixed on far right
+  local lockLabel = "[LOCK]"
+  at(W - #lockLabel + 1, 1, lockLabel, colors.black, colors.yellow)
+  table.insert(btns, {x1=W-#lockLabel+1, x2=W, y=1, fn=function()
+    pinUnlocked = false; pinInput = ""; pinError = false
+  end})
   if #alerts > 0 then
     local ind = "["..#alerts.."]"
-    at(W - #ind + 1, 1, ind, colors.black, colors.orange)
-    table.insert(btns, {x1=W-#ind+1, x2=W, y=1, fn=function()
+    local indX = W - #lockLabel - #ind
+    at(indX, 1, ind, colors.black, colors.orange)
+    table.insert(btns, {x1=indX, x2=indX+#ind-1, y=1, fn=function()
       screen = "alerts"
     end})
   end
