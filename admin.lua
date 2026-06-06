@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.1"
+local VERSION      = "2.2"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -83,7 +83,7 @@ local DEFAULT_RATE  = 0.0001
 local detector, detectorSide
 local monitor  = peripheral.find("monitor")
 local modem    = peripheral.find("modem")
-local chatBox  = peripheral.find("chatBox")
+local chatBox  = peripheral.find("chat_box")
 
 for _, side in ipairs({"top","bottom","left","right","front","back"}) do
   if peripheral.isPresent(side) and peripheral.getType(side) == "energy_detector" then
@@ -213,12 +213,9 @@ end
 
 local function whisper(player, msg)
   if chatBox and player then
-    local ok, err = pcall(function()
+    pcall(function()
       chatBox.sendMessageToPlayer(msg, player, "Beyond Energy")
     end)
-    if not ok then
-      addAlert("Whisper error: " .. tostring(err))
-    end
   end
 end
 
@@ -642,13 +639,6 @@ end
 W, H = monitor.getSize()
 monitor.setBackgroundColor(colors.black)
 monitor.clear()
-term.setTextColor(colors.lightGray); print("Peripherals attached:")
-for _, side in ipairs({"top","bottom","left","right","front","back"}) do
-  if peripheral.isPresent(side) then
-    term.setTextColor(colors.white)
-    print("  " .. side .. ": " .. peripheral.getType(side))
-  end
-end
 if chatBox then
   term.setTextColor(colors.lime);  print("Chat Box       : found")
 else
