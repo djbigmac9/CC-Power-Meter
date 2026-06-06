@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.0"
+local VERSION      = "3.2"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -268,7 +268,7 @@ local function handleCommand(msg)
       data.balance     = data.balance - charge
       data.periodUsage = 0
       ticksSincePeriod = 0
-      if data.balance <= 0 then data.balance = 0 end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = becomingProducer
     setPower(data.powerOn)
@@ -314,6 +314,7 @@ end
 
 -- ── Button system ────────────────────────────────────────────
 local buttons = {}
+local immediateRedraw = false  -- set by actions that must refresh before the next tick
 local function clearButtons() buttons = {} end
 
 local function addButton(x1, y1, x2, y2, label, fg, bg, action)
@@ -458,10 +459,7 @@ local function drawPlanChangeScreen()
       local charge = data.periodUsage * data.ratePerFE
       data.balance = data.balance - charge
       data.periodUsage = 0
-      if data.balance <= 0 then
-        data.balance = 0
-        if data.powerOn then setPower(false) end
-      end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.billingModel = newPlan; saveData(); planChangeActive = false
   end)
@@ -508,10 +506,7 @@ local function drawTypeChangeScreen()
       data.balance     = data.balance - charge
       data.periodUsage = 0
       ticksSincePeriod = 0
-      if data.balance <= 0 then
-        data.balance = 0
-        if data.powerOn then setPower(false) end
-      end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = not data.isProducer
     setPower(data.powerOn)
@@ -614,10 +609,14 @@ local function drawMeterScreen(importRate, exportRate)
   else
     if data.powerOn then
       centreText(statusRow, " ● POWER ON ", colors.black, colors.lime)
+    elseif data.balance < 0 then
+      centreText(statusRow, " ● POWER OFF - DEBT MUST BE CLEARED ", colors.white, colors.red)
     else
       centreText(statusRow, " ● POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
     end
-    if data.balance <= WARN_BALANCE and data.balance > 0 then
+    if data.balance < 0 then
+      centreText(warnRow, "  Outstanding debt - top up to restore  ", colors.black, colors.red)
+    elseif data.balance <= WARN_BALANCE and data.balance > 0 then
       centreText(warnRow, "  Low balance - please top up soon  ", colors.black, colors.orange)
     end
   end
@@ -640,11 +639,9 @@ local function drawMeterScreen(importRate, exportRate)
       data.balance     = data.balance - charge
       data.periodUsage = 0
       ticksSincePeriod = 0
-      if data.balance <= 0 then
-        data.balance = 0
-        if data.powerOn then setPower(false) end
-      end
+      if data.balance <= 0 and data.powerOn then setPower(false) end
       saveData()
+      immediateRedraw = true
     end)
     centreText(H-3, label, colors.black, colors.lime)
   else
@@ -727,10 +724,7 @@ end
 local function doPaygBilling(fe)
   data.balance       = data.balance - (fe * data.ratePerFE)
   data.totalConsumed = data.totalConsumed + fe
-  if data.balance <= 0 then
-    data.balance = 0
-    if data.powerOn then setPower(false) end
-  end
+  if data.balance <= 0 and data.powerOn then setPower(false) end
   saveData()
 end
 
@@ -742,10 +736,7 @@ local function doPeriodicBilling(fe)
     data.balance     = data.balance - (data.periodUsage * data.ratePerFE)
     data.periodUsage = 0
     ticksSincePeriod = 0
-    if data.balance <= 0 then
-      data.balance = 0
-      if data.powerOn then setPower(false) end
-    end
+    if data.balance <= 0 and data.powerOn then setPower(false) end
   end
   saveData()
 end
@@ -772,11 +763,11 @@ local function mainLoop()
     if e == "monitor_touch" then
       local wasType = typeChangeActive
       local wasPlan = planChangeActive
+      immediateRedraw = false
       checkClick(ev[3], ev[4])
-      -- only redraw immediately when the overlay screen changes so the
-      -- transition feels instant; all other touch redraws wait for the
-      -- timer tick, preventing click-spam from starving the timer event
-      if typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
+      -- redraw immediately on overlay transitions or when an action flags it
+      -- (PAY NOW must vanish before the next tick to prevent double-tap charges)
+      if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
