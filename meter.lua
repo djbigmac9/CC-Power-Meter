@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.9"
+local VERSION      = "3.0"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -770,13 +770,23 @@ local function mainLoop()
     local e  = ev[1]
 
     if e == "monitor_touch" then
+      local wasType = typeChangeActive
+      local wasPlan = planChangeActive
       checkClick(ev[3], ev[4])
+      -- only redraw immediately when the overlay screen changes so the
+      -- transition feels instant; all other touch redraws wait for the
+      -- timer tick, preventing click-spam from starving the timer event
+      if typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
+        if typeChangeActive then drawTypeChangeScreen()
+        elseif planChangeActive then drawPlanChangeScreen()
+        else drawMeterScreen(importRate, exportRate) end
+      end
 
     elseif e == "modem_message" then
       handleCommand(ev[5])
 
     elseif e == "timer" and ev[2] == timer then
-      -- Billing and rate sampling only on the poll timer
+      -- Billing, rate sampling, and redraw only on the poll timer
       importRate = importDetector and importDetector.getTransferRate and importDetector.getTransferRate() or 0
       exportRate = exportDetector and exportDetector.getTransferRate and exportDetector.getTransferRate() or 0
 
@@ -802,12 +812,10 @@ local function mainLoop()
       end
 
       timer = os.startTimer(POLL_INTERVAL)
+      if typeChangeActive then drawTypeChangeScreen()
+      elseif planChangeActive then drawPlanChangeScreen()
+      else drawMeterScreen(importRate, exportRate) end
     end
-
-    -- Redraw on every event so touch responses feel instant
-    if typeChangeActive then drawTypeChangeScreen()
-    elseif planChangeActive then drawPlanChangeScreen()
-    else drawMeterScreen(importRate, exportRate) end
   end
 end
 
