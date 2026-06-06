@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.3"
+local VERSION      = "3.4"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -602,6 +602,7 @@ local function drawCustomerScreen()
   writeAt(2, 11, "Rate cap:       " .. ((m.cap or 0)>=2147483647
                   and "Unlimited" or formatFE(m.cap or 0).." FE/t"),           colors.gray)
   writeAt(2, 12, "Rate/FE:        " .. string.format("%.6f LC", m.ratePerFE or DEFAULT_RATE), colors.gray)
+  local statusRow = 14
   if not m.isProducer and m.plan == "periodic" then
     local row = 13
     if m.periodCost then
@@ -616,18 +617,19 @@ local function drawCustomerScreen()
     end
     writeAt(2, row, "Status:         " .. (isOnline and "Online" or "OFFLINE"),
       isOnline and colors.lime or colors.red)
+    statusRow = row + 1
   else
     writeAt(2, 13, "Status:         " .. (isOnline and "Online" or "OFFLINE"),
       isOnline and colors.lime or colors.red)
   end
 
-  hline(14)
+  hline(statusRow)
   if m.powerOn then
-    centreText(15, " POWER ON ",  colors.black, colors.lime)
+    centreText(statusRow + 1, " POWER ON ",  colors.black, colors.lime)
   else
-    centreText(15, " POWER OFF ", colors.white, colors.red)
+    centreText(statusRow + 1, " POWER OFF ", colors.white, colors.red)
   end
-  hline(16)
+  hline(statusRow + 2)
 
   local bw  = math.floor((W - 6) / 3)
   local bw4 = math.floor((W - 6) / 4)
