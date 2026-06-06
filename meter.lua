@@ -184,9 +184,10 @@ local function setPower(state)
   data.powerOn = state
   if data.isProducer then
     if exportDetector then exportDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
-    if importDetector then importDetector.setTransferRateLimit(0) end
+    if importDetector then importDetector.setTransferRateLimit(0) end  -- always blocked
   else
     if importDetector then importDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
+    if exportDetector then exportDetector.setTransferRateLimit(0) end  -- always blocked
   end
   saveData()
 end
