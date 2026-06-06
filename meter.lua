@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v2.3
+--  BeyondSMP Electric Meter v2.4
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "2.3"
+local VERSION      = "2.4"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -97,6 +97,7 @@ local MAX_FLOW        = 2147483647
 local STATUS_CH       = 1001
 local COMMAND_CH      = 1002
 local BROADCAST_EVERY = 5
+local ticksSincePeriod = 0
 
 -- ── Peripheral detection ─────────────────────────────────────
 local importDetector = nil   -- left:  grid → player
@@ -194,6 +195,10 @@ end
 
 -- ── Networking ───────────────────────────────────────────────
 local function broadcastStatus(importRate, exportRate)
+  local billSecsLeft = nil
+  if not data.isProducer and data.billingModel == "periodic" then
+    billSecsLeft = math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL)
+  end
   modem.transmit(STATUS_CH, COMMAND_CH, {
     type          = "status",
     id            = os.getComputerID(),
@@ -208,6 +213,7 @@ local function broadcastStatus(importRate, exportRate)
     total         = data.totalConsumed,
     totalExported = data.totalExported,
     ratePerFE     = data.ratePerFE,
+    billSecsLeft  = billSecsLeft,
   })
 end
 
@@ -540,6 +546,8 @@ local function drawMeterScreen(importRate, exportRate)
   monitor.setTextColor(colors.white)
   monitor.write(formatFE(data.totalConsumed).."   ")
 
+  local nextRow = 12  -- row after last data line
+
   if data.isProducer then
     writeAt(2, 11, " Total exported:", colors.lightGray)
     monitor.setTextColor(colors.lime)
@@ -548,34 +556,45 @@ local function drawMeterScreen(importRate, exportRate)
     writeAt(2, 11, " Period usage:  ", colors.lightGray)
     monitor.setTextColor(colors.white)
     monitor.write(formatFE(data.periodUsage).."   ")
+    local secsLeft = math.max(0, math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL))
+    local mins = math.floor(secsLeft / 60)
+    local secs = secsLeft % 60
+    writeAt(2, 12, " Next bill in:  ", colors.lightGray)
+    monitor.setTextColor(colors.cyan)
+    monitor.write(string.format("%dm %02ds   ", mins, secs))
+    nextRow = 13
   end
 
-  hline(12)
+  local statusRow = nextRow + 1
+  local warnRow   = nextRow + 2
+  local updRow    = nextRow + 3
+
+  hline(nextRow)
 
   if data.isProducer then
     if data.powerOn then
-      centreText(13, " ● EXPORTING TO GRID ", colors.black, colors.lime)
+      centreText(statusRow, " ● EXPORTING TO GRID ", colors.black, colors.lime)
     else
-      centreText(13, " ● EXPORT DISABLED ", colors.white, colors.red)
+      centreText(statusRow, " ● EXPORT DISABLED ", colors.white, colors.red)
     end
   else
     if data.powerOn then
-      centreText(13, " ● POWER ON ", colors.black, colors.lime)
+      centreText(statusRow, " ● POWER ON ", colors.black, colors.lime)
     else
-      centreText(13, " ● POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
+      centreText(statusRow, " ● POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
     end
     if data.balance <= WARN_BALANCE and data.balance > 0 then
-      centreText(14, "  Low balance - please top up soon  ", colors.black, colors.orange)
+      centreText(warnRow, "  Low balance - please top up soon  ", colors.black, colors.orange)
     end
   end
 
   if updateAvailable then
     local label = " ** UPDATE AVAILABLE - TAP TO INSTALL ** "
     local bx    = math.floor((W - #label) / 2) + 1
-    addButton(bx, 15, bx + #label - 1, 15, label, colors.black, colors.yellow, function()
+    addButton(bx, updRow, bx + #label - 1, updRow, label, colors.black, colors.yellow, function()
       doUpdate()
     end)
-    centreText(15, label, colors.black, colors.yellow)
+    centreText(updRow, label, colors.black, colors.yellow)
   end
 
   hline(H-3)
@@ -651,7 +670,6 @@ local function runRegistration()
 end
 
 -- ── Billing logic ────────────────────────────────────────────
-local ticksSincePeriod = 0
 local PERIOD_TICKS     = 1200
 
 local function doPaygBilling(fe)
