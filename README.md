@@ -224,7 +224,7 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 
 | File | Current Version |
 |---|---|
-| meter.lua | 3.6 |
+| meter.lua | 3.7 |
 | admin.lua | 3.2 |
 | pocket.lua | 2.12 |
 | setup.lua | — |

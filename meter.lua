@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.6"
+local VERSION      = "3.7"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -546,115 +546,105 @@ local function drawMeterScreen(importRate, exportRate)
   exportRate = exportRate or 0
   cls(); clearButtons(); refreshSize()
 
+  -- Two-row header
   writeAt(1, 1, string.rep(" ", W), colors.black, colors.yellow)
   centreText(1, " BEYOND ENERGY METER ", colors.black, colors.yellow)
+  writeAt(1, 2, string.rep(" ", W), colors.white, colors.gray)
+  centreText(2, data.playerName or "Unknown", colors.white, colors.gray)
 
-  writeAt(2, 2, " Customer: ", colors.lightGray)
-  monitor.setTextColor(colors.white)
-  monitor.write(data.playerName or "Unknown")
+  hline(3, "\140")  -- \140 = ─ in CC's font
 
-  writeAt(2, 3, " Plan:     ", colors.lightGray)
-  monitor.setTextColor(colors.cyan)
-  monitor.write(data.billingModel == "payg" and "Pay As You Go" or "Periodic Billing")
-
-  writeAt(2, 4, " Type:     ", colors.lightGray)
-  monitor.setTextColor(data.isProducer and colors.lime or colors.cyan)
-  monitor.write(data.isProducer and "Producer" or "Consumer")
-
-  hline(5)
-
-  if data.isProducer then
-    writeAt(2, 6, " Exporting: ", colors.lightGray)
-    monitor.setTextColor(colors.lime)
-    monitor.write(formatFE(exportRate) .. "/t   ")
-    writeAt(2, 7, " Earning:   ", colors.lightGray)
-    monitor.setTextColor(colors.lime)
-    monitor.write(string.format("%.4f LC/t   ", exportRate * data.ratePerFE * 0.75))
-  else
-    writeAt(2, 6, " Draw:     ", colors.lightGray)
-    monitor.setTextColor(colors.white)
-    monitor.write(formatFE(importRate) .. "/t   ")
-    writeAt(2, 7, " Rate cap: ", colors.lightGray)
-    monitor.setTextColor(colors.gray)
-    local cap = importDetector and importDetector.getTransferRateLimit and importDetector.getTransferRateLimit() or 0
-    monitor.write(cap >= MAX_FLOW and "Unlimited" or formatFE(cap).."/t")
+  -- Right-aligned info rows
+  local function infoRow(y, label, value, valColor)
+    writeAt(2, y, label, colors.lightGray)
+    local valStr = tostring(value)
+    writeAt(W - #valStr, y, valStr, valColor or colors.white)
   end
 
-  hline(8)
+  if data.isProducer then
+    infoRow(4, "Exporting", formatFE(exportRate) .. " FE/t", colors.lime)
+    infoRow(5, "Earning",   string.format("%.4f LC/t", exportRate * data.ratePerFE * 0.75), colors.lime)
+  else
+    infoRow(4, "Draw",     formatFE(importRate) .. " FE/t", colors.white)
+    local cap = data.cap or MAX_FLOW
+    infoRow(5, "Rate cap", cap >= MAX_FLOW and "Unlimited" or formatFE(cap) .. " FE/t", colors.gray)
+  end
 
-  writeAt(2, 9, " Balance:       ", colors.lightGray)
+  hline(6, "\140")
+
+  -- Balance row — full-row colour based on status
   local balCol = data.balance > WARN_BALANCE and colors.lime
               or (data.balance > 0 and colors.yellow or colors.red)
-  monitor.setTextColor(balCol)
-  monitor.write(formatCurrency(data.balance).."   ")
+  writeAt(1, 7, string.rep(" ", W), balCol, colors.black)
+  writeAt(2, 7, "Balance", balCol)
+  local balStr = formatCurrency(data.balance) .. " LC"
+  writeAt(W - #balStr, 7, balStr, balCol)
 
-  writeAt(2, 10, " Total consumed:", colors.lightGray)
-  monitor.setTextColor(colors.white)
-  monitor.write(formatFE(data.totalConsumed).."   ")
+  infoRow(8, "Plan", data.billingModel == "payg" and "Pay As You Go" or "Periodic", colors.cyan)
+  infoRow(9, "Type", data.isProducer and "Producer" or "Consumer",
+          data.isProducer and colors.lime or colors.cyan)
 
-  local nextRow = 12  -- row after last data line
-
+  local nextRow = 11
   if data.isProducer then
-    writeAt(2, 11, " Total exported:", colors.lightGray)
-    monitor.setTextColor(colors.lime)
-    monitor.write(formatFE(data.totalExported).."   ")
+    infoRow(10, "Total exported", formatFE(data.totalExported) .. " FE", colors.lime)
   elseif data.billingModel == "periodic" then
-    writeAt(2, 11, " Period usage:  ", colors.lightGray)
-    monitor.setTextColor(colors.white)
-    monitor.write(formatFE(data.periodUsage).."   ")
-    writeAt(2, 12, " Period cost:   ", colors.lightGray)
-    monitor.setTextColor(colors.orange)
-    monitor.write(formatCurrency(data.periodUsage * data.ratePerFE).."   ")
+    infoRow(10, "Period cost", formatCurrency(data.periodUsage * data.ratePerFE) .. " LC", colors.orange)
     local secsLeft = math.max(0, math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL))
     local mins = math.floor(secsLeft / 60)
     local secs = secsLeft % 60
-    writeAt(2, 13, " Next bill in:  ", colors.lightGray)
-    monitor.setTextColor(colors.cyan)
-    monitor.write(string.format("%dm %02ds   ", mins, secs))
-    nextRow = 14
+    infoRow(11, "Next bill", string.format("%dm %02ds", mins, secs), colors.cyan)
+    nextRow = 12
+  else
+    infoRow(10, "Total consumed", formatFE(data.totalConsumed) .. " FE", colors.white)
   end
 
-  local statusRow = nextRow + 1
-  local warnRow   = nextRow + 2
-  local updRow    = nextRow + 3
+  local statusRow = nextRow
+  local warnRow   = nextRow + 1
+  local updRow    = nextRow + 2
 
-  hline(nextRow)
+  hline(statusRow - 1, "\140")
 
+  -- Full-width power status bar
   if data.isProducer then
     if data.powerOn then
-      centreText(statusRow, " ● EXPORTING TO GRID ", colors.black, colors.lime)
+      writeAt(1, statusRow, string.rep(" ", W), colors.black, colors.lime)
+      centreText(statusRow, " \4 EXPORTING TO GRID ", colors.black, colors.lime)
     else
-      centreText(statusRow, " ● EXPORT DISABLED ", colors.white, colors.red)
+      writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.red)
+      centreText(statusRow, " \4 EXPORT DISABLED ", colors.white, colors.red)
     end
   else
     if data.powerOn then
-      centreText(statusRow, " ● POWER ON ", colors.black, colors.lime)
+      writeAt(1, statusRow, string.rep(" ", W), colors.black, colors.lime)
+      centreText(statusRow, " \4 POWER ON ", colors.black, colors.lime)
     elseif data.balance < 0 then
-      centreText(statusRow, " ● POWER OFF - DEBT MUST BE CLEARED ", colors.white, colors.red)
+      writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.red)
+      centreText(statusRow, " \4 POWER OFF - DEBT MUST BE CLEARED ", colors.white, colors.red)
     else
-      centreText(statusRow, " ● POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
+      writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.red)
+      centreText(statusRow, " \4 POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
     end
     if data.balance < 0 then
-      centreText(warnRow, "  Outstanding debt - top up to restore  ", colors.black, colors.red)
+      writeAt(1, warnRow, string.rep(" ", W), colors.black, colors.red)
+      centreText(warnRow, " Outstanding debt \4 top up to restore ", colors.black, colors.red)
     elseif data.balance <= WARN_BALANCE and data.balance > 0 then
-      centreText(warnRow, "  Low balance - please top up soon  ", colors.black, colors.orange)
+      writeAt(1, warnRow, string.rep(" ", W), colors.black, colors.orange)
+      centreText(warnRow, " Low balance \4 please top up soon ", colors.black, colors.orange)
     end
   end
 
   if updateAvailable then
-    local label = " ** UPDATE AVAILABLE - TAP TO INSTALL ** "
+    local label = " UPDATE AVAILABLE - TAP TO INSTALL "
     local bx    = math.floor((W - #label) / 2) + 1
-    addButton(bx, updRow, bx + #label - 1, updRow, label, colors.black, colors.yellow, function()
-      doUpdate()
-    end)
+    addButton(bx, updRow, bx + #label - 1, updRow, label, colors.black, colors.yellow, doUpdate)
     centreText(updRow, label, colors.black, colors.yellow)
   end
 
   -- PAY NOW button for periodic consumers with outstanding usage
   if not data.isProducer and data.billingModel == "periodic" and data.periodUsage > 0 then
-    hline(H-4)
+    hline(H-4, "\140")
     local charge = data.periodUsage * data.ratePerFE
-    local label  = " PAY NOW (" .. formatCurrency(charge) .. ") "
+    local label  = " PAY NOW (" .. formatCurrency(charge) .. " LC) "
     addButton(2, H-3, W-1, H-3, label, colors.black, colors.lime, function()
       data.balance     = data.balance - charge
       data.periodUsage = 0
@@ -665,7 +655,7 @@ local function drawMeterScreen(importRate, exportRate)
     end)
     centreText(H-3, label, colors.black, colors.lime)
   else
-    hline(H-3)
+    hline(H-3, "\140")
   end
 
   local btnW = math.floor((W-4)/4)
@@ -694,7 +684,7 @@ local function drawMeterScreen(importRate, exportRate)
       end
     end)
 
-  hline(H-1)
+  hline(H-1, "\140")
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
 end
