@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.2"
+local VERSION      = "3.5"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -250,8 +250,7 @@ local function handleCommand(msg)
   elseif msg.cmd == "setbalance" and type(msg.value) == "number" then
     data.balance = msg.value
     if not data.isProducer then
-      if data.balance > 0 and not data.powerOn then setPower(true) end
-      if data.balance <= 0 and data.powerOn     then setPower(false) end
+      setPower(data.balance > 0)
     end
     saveData()
 
@@ -271,7 +270,11 @@ local function handleCommand(msg)
       if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = becomingProducer
-    setPower(data.powerOn)
+    if becomingProducer then
+      setPower(true)
+    else
+      setPower(data.powerOn and data.balance > 0)
+    end
     saveData()
   end
 end
@@ -509,7 +512,11 @@ local function drawTypeChangeScreen()
       if data.balance <= 0 and data.powerOn then setPower(false) end
     end
     data.isProducer = not data.isProducer
-    setPower(data.powerOn)
+    if data.isProducer then
+      setPower(true)
+    else
+      setPower(data.powerOn and data.balance > 0)
+    end
     saveData(); typeChangeActive = false
   end)
   addButton(mid+1, 17, mid+1+btnW, 17, "CANCEL", colors.white, colors.red, function()
@@ -760,21 +767,27 @@ local function mainLoop()
     local ev = { os.pullEvent() }
     local e  = ev[1]
 
+    immediateRedraw = false
+
     if e == "monitor_touch" then
       local wasType = typeChangeActive
       local wasPlan = planChangeActive
-      immediateRedraw = false
       checkClick(ev[3], ev[4])
-      -- redraw immediately on overlay transitions or when an action flags it
-      -- (PAY NOW must vanish before the next tick to prevent double-tap charges)
       if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
+        immediateRedraw = false
       end
 
     elseif e == "modem_message" then
       handleCommand(ev[5])
+      if immediateRedraw then
+        if typeChangeActive then drawTypeChangeScreen()
+        elseif planChangeActive then drawPlanChangeScreen()
+        else drawMeterScreen(importRate, exportRate) end
+        immediateRedraw = false
+      end
 
     elseif e == "timer" and ev[2] == timer then
       -- Billing, rate sampling, and redraw only on the poll timer
