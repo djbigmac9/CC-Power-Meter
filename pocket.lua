@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.7"
+local VERSION      = "2.8"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -505,26 +505,35 @@ local function drawDetail()
   btn(bw+1, 13 + o, W,    "+500 LC",
     colors.black, colors.lime, function()
       local nb = bal + 500
-      sendCmd(selected, "setbalance", nb)
-      pushAlert("+500: "..(m.player or selected))
-      m.balance = nb
+      confirm({"Add 500 LC to "..(m.player or tostring(selected)).."?",
+               "New balance: "..string.format("%.4f LC", nb)}, function()
+        sendCmd(selected, "setbalance", nb)
+        pushAlert("+500: "..(m.player or selected))
+        m.balance = nb
+      end, "detail")
     end)
 
   btn(1,    14 + o, bw,   "+100 LC",
     colors.black, colors.lime, function()
       local nb = bal + 100
-      sendCmd(selected, "setbalance", nb)
-      pushAlert("+100: "..(m.player or selected))
-      m.balance = nb
+      confirm({"Add 100 LC to "..(m.player or tostring(selected)).."?",
+               "New balance: "..string.format("%.4f LC", nb)}, function()
+        sendCmd(selected, "setbalance", nb)
+        pushAlert("+100: "..(m.player or selected))
+        m.balance = nb
+      end, "detail")
     end)
 
   btn(bw+1, 14 + o, W,    "TOGGLE CAP",
     colors.black, colors.cyan, function()
       local nc = (m.cap or 0) >= MAX_FLOW and 10000 or MAX_FLOW
-      sendCmd(selected, "setcap", nc)
-      pushAlert("Cap "..(nc>=MAX_FLOW and "Unlim" or formatFE(nc))
-        ..": "..(m.player or selected))
-      m.cap = nc
+      confirm({"Set cap for "..(m.player or tostring(selected)).."?",
+               "New cap: "..(nc>=MAX_FLOW and "Unlimited" or formatFE(nc).." FE/t")}, function()
+        sendCmd(selected, "setcap", nc)
+        pushAlert("Cap "..(nc>=MAX_FLOW and "Unlim" or formatFE(nc))
+          ..": "..(m.player or selected))
+        m.cap = nc
+      end, "detail")
     end)
 
   btn(1,    15 + o, W,    "UPDATE METER",
@@ -545,11 +554,14 @@ local function drawDetail()
       term.setTextColor(colors.lime)
       local name = io.read()
       if name and #name > 0 then
-        sendCmd(selected, "setname", name)
-        pushAlert("Renamed to: " .. name)
-        m.player = name
+        confirm({"Rename to '"..name.."'?"}, function()
+          sendCmd(selected, "setname", name)
+          pushAlert("Renamed to: " .. name)
+          m.player = name
+        end, "detail")
+      else
+        screen = "detail"
       end
-      screen = "detail"
     end)
 
   btn(1,    17 + o, W,    "CHG PLAN",

@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.0"
+local VERSION      = "3.1"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -616,17 +616,24 @@ local function drawCustomerScreen()
   addButton(2+bw,    H-4, 1+bw*2, H-4, "+500 LC",
     colors.black, colors.lime, function()
       local nb = (m.balance or 0) + 500
-      sendCommand(id, "setbalance", nb)
-      addAlert("Added 500 LC to "..(m.player or id))
-      whisper(m.player, "500 LC has been added to your account. New balance: "..formatCurrency(nb).." LC.")
-      m.balance = nb
+      confirm({"Add 500 LC to "..(m.player or tostring(id)).."?",
+               "New balance: "..formatCurrency(nb).." LC"}, function()
+        sendCommand(id, "setbalance", nb)
+        addAlert("Added 500 LC to "..(m.player or id))
+        whisper(m.player, "500 LC has been added to your account. New balance: "..formatCurrency(nb).." LC.")
+        m.balance = nb
+      end, "customer")
     end)
   addButton(2+bw*2,  H-4, W,      H-4, "TOGGLE CAP",
     colors.black, colors.cyan, function()
-      local nc = (m.cap or 0)>=2147483647 and 10000 or 2147483647
-      sendCommand(id, "setcap", nc)
-      addAlert("Cap "..(nc>=2147483647 and "Unlimited" or formatFE(nc)).." for "..(m.player or id))
-      m.cap = nc
+      local nc    = (m.cap or 0)>=2147483647 and 10000 or 2147483647
+      local label = nc>=2147483647 and "Unlimited" or formatFE(nc).." FE/t"
+      confirm({"Set cap for "..(m.player or tostring(id)).."?",
+               "New cap: "..label}, function()
+        sendCommand(id, "setcap", nc)
+        addAlert("Cap "..label.." for "..(m.player or id))
+        m.cap = nc
+      end, "customer")
     end)
 
   addButton(2,          H-2, 1+bw4,    H-2, "RENAME",
@@ -638,9 +645,11 @@ local function drawCustomerScreen()
       term.setTextColor(colors.white)
       local name = io.read()
       if name and #name > 0 then
-        sendCommand(id, "setname", name)
-        addAlert("Renamed " .. (m.player or tostring(id)) .. " to " .. name)
-        m.player = name
+        confirm({"Rename to '"..name.."'?"}, function()
+          sendCommand(id, "setname", name)
+          addAlert("Renamed " .. (m.player or tostring(id)) .. " to " .. name)
+          m.player = name
+        end, "customer")
       end
     end)
   addButton(2+bw4,      H-2, 1+bw4*2,  H-2, "CHG PLAN",
