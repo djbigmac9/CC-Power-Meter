@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.0"
+local VERSION      = "3.1"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -314,6 +314,7 @@ end
 
 -- ── Button system ────────────────────────────────────────────
 local buttons = {}
+local immediateRedraw = false  -- set by actions that must refresh before the next tick
 local function clearButtons() buttons = {} end
 
 local function addButton(x1, y1, x2, y2, label, fg, bg, action)
@@ -645,6 +646,7 @@ local function drawMeterScreen(importRate, exportRate)
         if data.powerOn then setPower(false) end
       end
       saveData()
+      immediateRedraw = true
     end)
     centreText(H-3, label, colors.black, colors.lime)
   else
@@ -772,11 +774,11 @@ local function mainLoop()
     if e == "monitor_touch" then
       local wasType = typeChangeActive
       local wasPlan = planChangeActive
+      immediateRedraw = false
       checkClick(ev[3], ev[4])
-      -- only redraw immediately when the overlay screen changes so the
-      -- transition feels instant; all other touch redraws wait for the
-      -- timer tick, preventing click-spam from starving the timer event
-      if typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
+      -- redraw immediately on overlay transitions or when an action flags it
+      -- (PAY NOW must vanish before the next tick to prevent double-tap charges)
+      if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
