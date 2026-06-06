@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.3"
+local VERSION      = "2.4"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -19,19 +19,28 @@ if not modem then
 end
 modem.open(STATUS_CH)
 
--- ── State ────────────────────────────────────────────────────
-local meters         = {}
-local alerts         = {}
-local screen         = "list"
-local selected       = nil
-local W, H           = term.getSize()
-local confirmPending = nil  -- {lines={}, action=fn, returnScreen=str}
+-- ── PIN lock ─────────────────────────────────────────────────
+local ADMIN_PIN    = "1234"   -- change this
+local LOCK_TIMEOUT = 300      -- seconds of inactivity before auto-lock
+local pinUnlocked  = false
+local pinInput     = ""
+local pinError     = false
+local lastActivity = 0
 
-local function confirm(lines, action, returnScreen)
-  if type(lines) == "string" then lines = {lines} end
-  confirmPending = {lines=lines, action=action, returnScreen=returnScreen or screen}
-  screen = "confirm"
+local function touchActivity() lastActivity = os.clock() end
+
+local function checkAutoLock()
+  if pinUnlocked and os.clock() - lastActivity > LOCK_TIMEOUT then
+    pinUnlocked = false; pinInput = ""; pinError = false
+  end
 end
+
+-- ── State ────────────────────────────────────────────────────
+local meters   = {}
+local alerts   = {}
+local screen   = "list"
+local selected = nil
+local W, H     = term.getSize()
 
 -- ── Helpers ──────────────────────────────────────────────────
 local function cls()
@@ -193,32 +202,51 @@ local function sorted()
   return t
 end
 
--- ── CONFIRM SCREEN ────────────────────────────────────────────
-local function drawConfirm()
-  if not confirmPending then screen = "list"; return end
+-- ── PIN SCREEN ────────────────────────────────────────────────
+local function drawPin()
   cls(); clearBtns()
-  at(1, 1, string.rep(" ", W), colors.white, colors.red)
-  at(1, 1, "CONFIRM", colors.white, colors.red)
+  at(1, 1, string.rep(" ", W), colors.black, colors.yellow)
+  at(1, 1, "ADMIN PIN", colors.black, colors.yellow)
   hline(2)
-  for i, line in ipairs(confirmPending.lines) do
-    at(1, 2 + i, line, colors.white)
+  at(1, 3, "Enter PIN:", colors.lightGray)
+  local dots = string.rep("* ", #pinInput)
+  at(1, 4, dots ~= "" and dots or "----", #pinInput > 0 and colors.white or colors.gray)
+  if pinError then at(1, 5, "Incorrect PIN", colors.red) end
+  hline(6)
+
+  -- 3-column keypad
+  local kw = math.floor(W / 3)
+  local function kbtn(col, row, label, val)
+    local x1 = (col-1)*kw + 1
+    local x2 = x1 + kw - 1
+    local y   = 6 + row
+    btn(x1, y, x2, label, colors.black, colors.lightGray, function()
+      if #pinInput < 8 then pinInput = pinInput .. val; pinError = false end
+    end)
   end
-  hline(H - 3)
-  local bw = math.floor(W / 2)
-  btn(1,    H-2, bw,   "CONFIRM", colors.black, colors.lime, function()
-    confirmPending.action()
-    screen         = confirmPending.returnScreen
-    confirmPending = nil
+
+  kbtn(1,1,"1","1"); kbtn(2,1,"2","2"); kbtn(3,1,"3","3")
+  kbtn(1,2,"4","4"); kbtn(2,2,"5","5"); kbtn(3,2,"6","6")
+  kbtn(1,3,"7","7"); kbtn(2,3,"8","8"); kbtn(3,3,"9","9")
+
+  -- Bottom row: DEL | 0 | OK
+  local y4 = 10
+  btn(1,         y4, kw,     "DEL", colors.white, colors.red, function()
+    if #pinInput > 0 then pinInput = pinInput:sub(1,-2); pinError = false end
   end)
-  btn(bw+1, H-2, W,    "CANCEL",  colors.white, colors.red, function()
-    screen         = confirmPending.returnScreen
-    confirmPending = nil
+  btn(kw+1,      y4, kw*2,   "0",   colors.black, colors.lightGray, function()
+    if #pinInput < 8 then pinInput = pinInput .. "0"; pinError = false end
   end)
+  btn(kw*2+1,    y4, W,      "OK",  colors.black, colors.lime, function()
+    if pinInput == ADMIN_PIN then
+      pinUnlocked = true; pinInput = ""; pinError = false; touchActivity()
+    else
+      pinError = true; pinInput = ""
+    end
+  end)
+
   hline(H-1)
-  btn(1, H, W, "< BACK", colors.black, colors.gray, function()
-    screen         = confirmPending.returnScreen
-    confirmPending = nil
-  end)
+  at(1, H, "v"..VERSION, colors.gray)
 end
 
 -- ── LIST SCREEN ───────────────────────────────────────────────
@@ -278,18 +306,11 @@ local function drawList()
   hline(H - 1)
   local bw = math.floor(W / 3)
   btn(1,      H, bw,     "CUT ALL",  colors.white, colors.red,    function()
-    confirm({"Cut ALL meters?"}, function()
-      broadcast("cut"); pushAlert("All meters cut")
-    end, "list")
-  end)
+    broadcast("cut"); pushAlert("All meters cut") end)
   btn(bw+1,   H, bw*2,   "REST ALL", colors.black, colors.green,  function()
-    broadcast("restore"); pushAlert("All meters restored")
-  end)
+    broadcast("restore"); pushAlert("All meters restored") end)
   btn(bw*2+1, H, W,      "UPD ALL",  colors.black, colors.purple, function()
-    confirm({"Update ALL meters?", "They will reboot."}, function()
-      broadcast("update"); pushAlert("Update sent to all meters")
-    end, "list")
-  end)
+    broadcast("update"); pushAlert("Update sent to all meters") end)
 end
 
 -- ── DETAIL SCREEN ─────────────────────────────────────────────
@@ -378,10 +399,8 @@ local function drawDetail()
     colors.white, m.powerOn and colors.red or colors.green,
     function()
       if m.powerOn then
-        confirm({"Cut power for "..(m.player or tostring(selected)).."?"}, function()
-          sendCmd(selected, "cut")
-          pushAlert("Cut: "..(m.player or selected))
-        end, "detail")
+        sendCmd(selected, "cut")
+        pushAlert("Cut: "..(m.player or selected))
       else
         sendCmd(selected, "restore")
         pushAlert("Restored: "..(m.player or selected))
@@ -415,10 +434,8 @@ local function drawDetail()
 
   btn(1,    15 + o, W,    "UPDATE METER",
     colors.black, colors.purple, function()
-      confirm({"Update "..(m.player or tostring(selected)).."?", "Meter will reboot."}, function()
-        sendCmd(selected, "update")
-        pushAlert("Update sent to "..(m.player or selected))
-      end, "detail")
+      sendCmd(selected, "update")
+      pushAlert("Update sent to "..(m.player or selected))
     end)
 
   btn(1,    16 + o, W,    "RENAME",
@@ -431,38 +448,30 @@ local function drawDetail()
       term.setTextColor(colors.lime)
       local name = io.read()
       if name and #name > 0 then
-        confirm({"Rename to '"..name.."'?"}, function()
-          sendCmd(selected, "setname", name)
-          pushAlert("Renamed to: " .. name)
-          m.player = name
-        end, "detail")
-      else
-        screen = "detail"
+        sendCmd(selected, "setname", name)
+        pushAlert("Renamed to: " .. name)
+        m.player = name
       end
+      screen = "detail"
     end)
 
   btn(1,    17 + o, W,    "CHG PLAN",
     colors.black, colors.yellow, function()
       local newPlan  = (m.plan == "payg") and "periodic" or "payg"
       local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
-      confirm({"Change plan for "..(m.player or tostring(selected)).."?",
-               "New plan: "..newLabel}, function()
-        sendCmd(selected, "setplan", newPlan)
-        pushAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(selected)))
-        m.plan = newPlan
-      end, "detail")
+      sendCmd(selected, "setplan", newPlan)
+      pushAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(selected)))
+      m.plan = newPlan
     end)
 
   btn(1,    18 + o, W,
     m.isProducer and "TYPE: PRODUCER -> CONSUMER" or "TYPE: CONSUMER -> PRODUCER",
     colors.black, colors.orange, function()
-      local newType  = not m.isProducer
-      local newLabel = newType and "Producer" or "Consumer"
-      confirm({"Switch "..(m.player or tostring(selected)).." to "..newLabel.."?"}, function()
-        sendCmd(selected, "settype", newType and "producer" or "consumer")
-        pushAlert("Type -> "..newLabel..": "..(m.player or tostring(selected)))
-        m.isProducer = newType
-      end, "detail")
+      local newType = not m.isProducer
+      sendCmd(selected, "settype", newType and "producer" or "consumer")
+      pushAlert("Type -> "..(newType and "Producer" or "Consumer")
+        ..": "..(m.player or tostring(selected)))
+      m.isProducer = newType
     end)
 
   drawUpdateBanner()
@@ -499,10 +508,11 @@ end
 
 -- ── Redraw ────────────────────────────────────────────────────
 local function redraw()
-  if     screen == "confirm" then drawConfirm()
-  elseif screen == "list"    then drawList()
-  elseif screen == "detail"  then drawDetail()
-  elseif screen == "alerts"  then drawAlerts()
+  checkAutoLock()
+  if     not pinUnlocked   then drawPin()
+  elseif screen == "list"   then drawList()
+  elseif screen == "detail" then drawDetail()
+  elseif screen == "alerts" then drawAlerts()
   end
   term.setBackgroundColor(colors.black)
   term.setTextColor(colors.white)
@@ -541,7 +551,7 @@ while true do
     redraw()
 
   elseif e == "mouse_click" then
-    click(ev[3], ev[4]); redraw()
+    touchActivity(); click(ev[3], ev[4]); redraw()
 
   elseif e == "key" then
     local k = ev[2]
