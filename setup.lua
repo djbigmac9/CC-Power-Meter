@@ -256,21 +256,22 @@ local function download(machine)
     print()
     local pin = ""
     while true do
-      pin = prompt("  Enter PIN: ")
-      if pin:match("^%d+$") and #pin >= 4 and #pin <= 8 then break end
+      while true do
+        pin = prompt("  Enter PIN: ")
+        if pin:match("^%d+$") and #pin >= 4 and #pin <= 8 then break end
+        term.setTextColor(colors.red)
+        print("  PIN must be 4-8 digits. Try again.")
+        term.setTextColor(colors.white)
+      end
+      local confirm = prompt("  Confirm PIN: ")
+      if confirm == pin then
+        term.setTextColor(colors.lime)
+        print("  PIN set.")
+        term.setTextColor(colors.white)
+        break
+      end
       term.setTextColor(colors.red)
-      print("  PIN must be 4-8 digits. Try again.")
-      term.setTextColor(colors.white)
-    end
-    local confirm = prompt("  Confirm PIN: ")
-    if confirm ~= pin then
-      term.setTextColor(colors.red)
-      print("  PINs do not match - using default 1234.")
-      term.setTextColor(colors.white)
-      pin = "1234"
-    else
-      term.setTextColor(colors.lime)
-      print("  PIN set.")
+      print("  PINs do not match. Try again.")
       term.setTextColor(colors.white)
     end
     body = body:gsub('ADMIN_PIN%s*=%s*"[^"]*"', 'ADMIN_PIN = "' .. pin .. '"', 1)
