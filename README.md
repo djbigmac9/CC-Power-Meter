@@ -129,6 +129,8 @@ On first boot the meter walks a new customer through a 3-step setup:
 
 ## Admin Panel Features
 
+All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypad — no physical keyboard required, consistent with the monitor's touch-driven interface.
+
 ### Dashboard
 - Live generation, total draw, and surplus for the whole network
 - Per-meter table: name, plan, balance, draw/export rate, cap, power status, type tag `[P]`/`[C]`
@@ -139,7 +141,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 |---|---|
 | `CUT POWER / RESTORE` | Cut or restore this meter's power |
 | `+500 LC` | Add 500 LC to balance |
-| `TOGGLE CAP` | Switch rate cap between Unlimited and 10,000 FE/t |
+| `SET CAP` | Enter a new admin-controlled rate cap on the on-screen keypad (or tap UNLIMITED) |
 | `RENAME` | Change the player name on this meter |
 | `CHG PLAN` | Toggle billing plan (PAYG ↔ Periodic) |
 | `UPDATE` | Push a remote update to this meter |
@@ -153,7 +155,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 |---|---|
 | `DASHBOARD` | Return to meter list |
 | `ALERTS` | View event log (power cuts, low balances, etc.) |
-| `SET RATE` | Broadcast a new LC/FE rate to all meters |
+| `SET RATE` | Enter a new global LC/FE rate on the on-screen keypad and broadcast it to all meters |
 | `UPD METERS` | Send remote update command to all meters |
 | `CUT ALL / RESTORE ALL` | Cut or restore every meter at once |
 
@@ -165,7 +167,7 @@ Runs on an Advanced Pocket Computer with an Ender Modem.
 
 - **List screen** — all meters with online status and power state
 - **Detail screen** — balance, draw/export, plan, type, period cost, countdown
-- Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, TOGGLE CAP, UPDATE METER, RENAME, CHG PLAN, toggle type
+- Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, SET CAP (keyboard entry), UPDATE METER, RENAME, CHG PLAN, toggle type
 - Global: CUT ALL, RESTORE ALL, UPD ALL
 - Alert log with count indicator
 - Update available banner
@@ -227,6 +229,6 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 | File | Current Version |
 |---|---|
 | meter.lua | 3.11 |
-| admin.lua | 3.4 |
-| pocket.lua | 2.12 |
+| admin.lua | 3.5 |
+| pocket.lua | 2.13 |
 | setup.lua | — |

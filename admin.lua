@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v3.1
+--  BeyondSMP Admin Panel v3.5
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.4"
+local VERSION      = "3.5"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -215,9 +215,27 @@ local meters         = {}
 local alerts         = {}
 local selectedMeter  = nil
 local currentScreen  = "dashboard"
-local rateInput      = ""
-local rateInputRow   = 1
 local confirmPending = nil  -- {lines={}, action=fn, returnScreen=str}
+
+-- Numeric keypad input (touch-only, replaces keyboard-driven entry)
+local numInput             = ""
+local numInputTitle        = ""
+local numInputSubtitle     = ""
+local numInputAllowDecimal = true
+local numInputOnConfirm    = nil
+local numInputExtra        = nil   -- optional {label=str, value=num} third button
+local numInputReturn       = "dashboard"
+
+local function openNumericInput(title, subtitle, allowDecimal, onConfirm, extra, returnScreen)
+  numInput             = ""
+  numInputTitle        = title
+  numInputSubtitle     = subtitle or ""
+  numInputAllowDecimal = allowDecimal
+  numInputOnConfirm    = onConfirm
+  numInputExtra        = extra
+  numInputReturn       = returnScreen or currentScreen
+  currentScreen        = "numinput"
+end
 
 local function confirm(lines, action, returnScreen)
   if type(lines) == "string" then lines = {lines} end
@@ -484,7 +502,19 @@ local function drawDashboard()
     colors.black, #alerts>0 and colors.orange or colors.gray,
     function() currentScreen="alerts" end)
   addButton(bw4*2+1,    H-3, bw4*3,   H-3, "SET RATE",
-    colors.black, colors.cyan,    function() currentScreen="rate" end)
+    colors.black, colors.cyan,    function()
+      openNumericInput(
+        "Set Global Rate (LC/FE)",
+        string.format("Current: %.6f LC/FE", DEFAULT_RATE),
+        true,
+        function(n)
+          DEFAULT_RATE = n
+          sendBroadcast("setrate", n)
+          addAlert("Rate set to "..string.format("%.6f", n))
+          currentScreen = "dashboard"
+        end,
+        nil, "dashboard")
+    end)
   addButton(bw4*3+1,    H-3, W,       H-3, "UPD METERS",
     colors.black, colors.purple,  function()
       confirm({"Push update to ALL meters?", "They will reboot immediately."}, function()
@@ -509,7 +539,6 @@ local function drawDashboard()
     end)
   addButton(bw3+1,      H-2, bw3*2,   H-2, "CHG PIN",
     colors.black, colors.gray, function()
-      rateInput = ""
       term.setTextColor(colors.yellow)
       print("\n-- Change Admin PIN --")
       term.setTextColor(colors.lightGray); term.write("Current PIN: ")
@@ -659,16 +688,25 @@ local function drawCustomerScreen()
         m.balance = nb
       end, "customer")
     end)
-  addButton(2+bw*2,  H-4, W,      H-4, "TOGGLE CAP",
+  addButton(2+bw*2,  H-4, W,      H-4, "SET CAP",
     colors.black, colors.cyan, function()
-      local nc    = (m.cap or 0)>=2147483647 and 10000 or 2147483647
-      local label = nc>=2147483647 and "Unlimited" or formatFE(nc).." FE/t"
-      confirm({"Set cap for "..(m.player or tostring(id)).."?",
-               "New cap: "..label}, function()
-        sendCommand(id, "setcap", nc)
-        addAlert("Cap "..label.." for "..(m.player or id))
-        m.cap = nc
-      end, "customer")
+      local curLabel = (m.cap or 0)>=2147483647 and "Unlimited" or formatFE(m.cap or 0).." FE/t"
+      openNumericInput(
+        "Set Rate Cap for "..(m.player or tostring(id)),
+        "Current: "..curLabel.."  (UNLIMITED = no cap)",
+        false,
+        function(n)
+          local nc    = math.floor(n)
+          local label = nc >= 2147483647 and "Unlimited" or (formatFE(nc).." FE/t")
+          confirm({"Set cap for "..(m.player or tostring(id)).."?",
+                   "New cap: "..label}, function()
+            sendCommand(id, "setcap", nc)
+            addAlert("Cap "..label.." for "..(m.player or id))
+            m.cap = nc
+          end, "customer")
+        end,
+        { label = "UNLIMITED", value = 2147483647 },
+        "customer")
     end)
 
   addButton(2,          H-2, 1+bw4,    H-2, "RENAME",
@@ -726,66 +764,70 @@ local function drawCustomerScreen()
   drawButtons()
 end
 
--- ── Rate screen ──────────────────────────────────────────────
-local function drawRateScreen()
+-- ── Numeric input screen (touch keypad) ──────────────────────
+local function drawNumericInputScreen()
   cls(); clearButtons()
-  centreText(2, "BEYOND ENERGY",       colors.yellow)
-  centreText(3, "Global Rate Change",  colors.lightGray)
+  centreText(2, "BEYOND ENERGY",  colors.yellow)
+  centreText(3, numInputTitle,    colors.lightGray)
   hline(4)
-  centreText(6,  "Current default rate:", colors.lightGray)
-  centreText(7,  string.format("%.6f LC per FE", DEFAULT_RATE), colors.white)
-  hline(9)
-  centreText(10, "Type new rate then press ENTER", colors.lightGray)
-  centreText(11, "e.g. 0.000001", colors.gray)
-  centreText(13, "> " .. rateInput .. "_", colors.lime)
-  hline(H-4)
-  local bw  = math.floor((W - 6) / 3)
-  local mid  = 2 + bw + 1
-  addButton(2,       H-3, 2+bw,     H-3, "BROADCAST",
-    colors.black, colors.lime, function()
-      local n = tonumber(rateInput)
-      if n and n > 0 then
-        DEFAULT_RATE = n; sendBroadcast("setrate", n)
-        addAlert("Rate set to "..string.format("%.6f",n))
-        rateInput = ""; currentScreen = "dashboard"
-      end
+  if numInputSubtitle ~= "" then
+    centreText(6, numInputSubtitle, colors.lightGray)
+  end
+  centreText(7, "> " .. numInput .. "_", colors.lime)
+  hline(8)
+
+  -- Touch numeric keypad
+  local rows = {
+    {"7", "8", "9"},
+    {"4", "5", "6"},
+    {"1", "2", "3"},
+    {numInputAllowDecimal and "." or "C", "0", "<-"},
+  }
+  local kw = math.floor((W - 4) / 3)
+  for r, row in ipairs(rows) do
+    for c, label in ipairs(row) do
+      local x1 = 2 + (c - 1) * (kw + 1)
+      local x2 = x1 + kw - 1
+      local y  = 9 + (r - 1)
+      addButton(x1, y, x2, y, label, colors.white, colors.gray, function()
+        if label == "<-" then
+          numInput = numInput:sub(1, -2)
+        elseif label == "C" then
+          numInput = ""
+        elseif label == "." then
+          if not numInput:find("%.", 1, true) then numInput = numInput .. "." end
+        else
+          numInput = numInput .. label
+        end
+      end)
+    end
+  end
+
+  hline(13)
+  local by = 14
+  if numInputExtra then
+    local bw3 = math.floor((W - 4) / 3)
+    addButton(2,       by, 1+bw3,   by, "CONFIRM", colors.black, colors.lime, function()
+      local n = tonumber(numInput)
+      if n and n > 0 and numInputOnConfirm then numInputOnConfirm(n) end
     end)
-  addButton(mid,     H-3, mid+bw,   H-3, "CHG PIN",
-    colors.black, colors.gray, function()
-      rateInput = ""
-      term.setTextColor(colors.yellow)
-      print("\n-- Change Admin PIN --")
-      term.setTextColor(colors.lightGray); term.write("Current PIN: ")
-      term.setTextColor(colors.white)
-      local cur = io.read()
-      if cur ~= ADMIN_PIN then
-        term.setTextColor(colors.red); print("Incorrect PIN.")
-        term.setTextColor(colors.white); return
-      end
-      local new1
-      while true do
-        term.setTextColor(colors.lightGray); term.write("New PIN (4-8 digits): ")
-        term.setTextColor(colors.white)
-        new1 = io.read()
-        if new1:match("^%d+$") and #new1 >= 4 and #new1 <= 8 then break end
-        term.setTextColor(colors.red); print("Must be 4-8 digits.")
-        term.setTextColor(colors.white)
-      end
-      while true do
-        term.setTextColor(colors.lightGray); term.write("Confirm new PIN: ")
-        term.setTextColor(colors.white)
-        local new2 = io.read()
-        if new2 == new1 then break end
-        term.setTextColor(colors.red); print("PINs don't match. Try again.")
-        term.setTextColor(colors.white)
-      end
-      savePin(new1)
-      term.setTextColor(colors.lime); print("PIN updated.")
-      term.setTextColor(colors.white)
-      currentScreen = "dashboard"
+    addButton(2+bw3,   by, 1+bw3*2, by, numInputExtra.label, colors.black, colors.cyan, function()
+      if numInputOnConfirm then numInputOnConfirm(numInputExtra.value) end
     end)
-  addButton(mid+bw+1, H-3, W-1,    H-3, "CANCEL",
-    colors.white, colors.red, function() rateInput=""; currentScreen="dashboard" end)
+    addButton(2+bw3*2, by, W-1,     by, "CANCEL", colors.white, colors.red, function()
+      currentScreen = numInputReturn
+    end)
+  else
+    local bw2 = math.floor((W - 4) / 2)
+    addButton(2,     by, 1+bw2, by, "CONFIRM", colors.black, colors.lime, function()
+      local n = tonumber(numInput)
+      if n and n > 0 and numInputOnConfirm then numInputOnConfirm(n) end
+    end)
+    addButton(2+bw2, by, W-1,   by, "CANCEL", colors.white, colors.red, function()
+      currentScreen = numInputReturn
+    end)
+  end
+
   hline(H-1)
   drawUpdateBanner()
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
@@ -818,7 +860,6 @@ end
 
 -- ── Main loop ────────────────────────────────────────────────
 local function mainLoop()
-  local drawnScreen     = nil
   local lastUpdateCheck = os.clock()
 
   while true do
@@ -835,20 +876,9 @@ local function mainLoop()
     elseif currentScreen == "confirm"   then drawConfirmScreen()
     elseif currentScreen == "dashboard" then drawDashboard()
     elseif currentScreen == "customer"  then drawCustomerScreen()
-    elseif currentScreen == "rate"      then
-      drawRateScreen()
-      if drawnScreen ~= "rate" then
-        rateInputRow = select(2, term.getCursorPos())
-        term.setCursorPos(1, rateInputRow)
-        term.setTextColor(colors.lightGray)
-        term.write("New rate (current: "..string.format("%.6f", DEFAULT_RATE)..") > ")
-        term.setTextColor(colors.lime)
-        term.write(rateInput)
-        rateInputRow = select(2, term.getCursorPos())
-      end
+    elseif currentScreen == "numinput" then drawNumericInputScreen()
     elseif currentScreen == "alerts"    then drawAlertsScreen()
     end
-    drawnScreen = currentScreen
 
     -- Wait for event
     local timer = os.startTimer(2)  -- redraw every 2 seconds
@@ -878,48 +908,8 @@ local function mainLoop()
           end
         end
 
-      elseif e == "char" and currentScreen == "rate" then
-        rateInput = rateInput .. ev[2]
-        term.setCursorPos(1, rateInputRow)
-        term.clearLine()
-        term.setTextColor(colors.lime)
-        term.write(rateInput)
-        drawRateScreen()
-
-      elseif e == "key" and currentScreen == "rate" then
-        if ev[2] == keys.backspace and #rateInput > 0 then
-          rateInput = rateInput:sub(1,-2)
-          term.setCursorPos(1, rateInputRow)
-          term.clearLine()
-          term.setTextColor(colors.lime)
-          term.write(rateInput)
-          drawRateScreen()
-        elseif ev[2] == keys.enter then
-          local n = tonumber(rateInput)
-          if n and n > 0 then
-            DEFAULT_RATE = n; sendBroadcast("setrate", n)
-            addAlert("Rate set to "..string.format("%.6f",n))
-            term.setCursorPos(1, rateInputRow + 1)
-            term.setTextColor(colors.white)
-            term.write("Rate set to " .. string.format("%.6f", n))
-            rateInput = ""; currentScreen = "dashboard"
-            drawnScreen = nil
-            break
-          else
-            term.setCursorPos(1, rateInputRow + 1)
-            term.setTextColor(colors.red)
-            term.write("Invalid - must be a positive number")
-            term.setCursorPos(1, rateInputRow)
-            term.clearLine()
-            term.setTextColor(colors.lime)
-            term.write(rateInput)
-          end
-        end
-
       elseif e == "timer" and ev[2] == timer then
-        if currentScreen ~= "rate" then break end
-        -- on rate screen: restart timer but don't break/redraw
-        timer = os.startTimer(2)
+        break
       end
     end
   end

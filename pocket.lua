@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.12"
+local VERSION      = "2.13"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -524,14 +524,32 @@ local function drawDetail()
       end, "detail")
     end)
 
-  btn(bw+1, 14 + o, W,    "TOGGLE CAP",
+  btn(bw+1, 14 + o, W,    "SET CAP",
     colors.black, colors.cyan, function()
-      local nc = (m.cap or 0) >= MAX_FLOW and 10000 or MAX_FLOW
+      cls()
+      local curLabel = (m.cap or 0) >= MAX_FLOW and "Unlimited" or (formatFE(m.cap or 0).." FE/t")
+      at(1, 1, "SET RATE CAP",   colors.cyan)
+      at(1, 2, "Meter: " .. (m.player or tostring(selected)), colors.lightGray)
+      at(1, 3, "Current: " .. curLabel, colors.lightGray)
+      at(1, 5, "New cap (FE/t, blank = Unlimited):", colors.white)
+      term.setCursorPos(1, 6)
+      term.setTextColor(colors.lime)
+      local input = io.read()
+      local nc
+      if input == nil or input:match("^%s*$") then
+        nc = MAX_FLOW
+      else
+        nc = math.floor(tonumber(input) or -1)
+      end
+      if nc == nil or nc < 0 then
+        screen = "detail"
+        return
+      end
+      local label = nc >= MAX_FLOW and "Unlimited" or (formatFE(nc).." FE/t")
       confirm({"Set cap for "..(m.player or tostring(selected)).."?",
-               "New cap: "..(nc>=MAX_FLOW and "Unlimited" or formatFE(nc).." FE/t")}, function()
+               "New cap: "..label}, function()
         sendCmd(selected, "setcap", nc)
-        pushAlert("Cap "..(nc>=MAX_FLOW and "Unlim" or formatFE(nc))
-          ..": "..(m.player or selected))
+        pushAlert("Cap "..label..": "..(m.player or selected))
         m.cap = nc
       end, "detail")
     end)
