@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.10
+--  BeyondSMP Electric Meter v3.11
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.10"
+local VERSION      = "3.11"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -320,14 +320,14 @@ local function hline(y, char, fg, bg)
 end
 
 local function formatFE(n)
-  if n >= 1e9 then return string.format("%.2f GFE", n/1e9)
-  elseif n >= 1e6 then return string.format("%.2f MFE", n/1e6)
-  elseif n >= 1e3 then return string.format("%.2f kFE", n/1e3)
-  else return string.format("%d FE", n) end
+  if n >= 1e9 then return string.format("%.2fG", n/1e9)
+  elseif n >= 1e6 then return string.format("%.2fM", n/1e6)
+  elseif n >= 1e3 then return string.format("%.2fk", n/1e3)
+  else return string.format("%d", n) end
 end
 
 local function formatCurrency(n)
-  return string.format("%.4f LC", n)
+  return string.format("%.4f", n)
 end
 
 -- ── Button system ────────────────────────────────────────────
@@ -471,8 +471,8 @@ local function drawPlanChangeScreen()
   if data.billingModel == "periodic" and data.periodUsage > 0 then
     local charge = data.periodUsage * data.ratePerFE
     centreText(10, "Outstanding period usage will be", colors.orange)
-    centreText(11, "charged now: " .. formatCurrency(charge), colors.orange)
-    centreText(12, "New balance: " .. formatCurrency(data.balance - charge), colors.white)
+    centreText(11, "charged now: " .. formatCurrency(charge) .. " LC", colors.orange)
+    centreText(12, "New balance: " .. formatCurrency(data.balance - charge) .. " LC", colors.white)
     hline(14)
   else
     centreText(11, "No outstanding charges.", colors.lightGray)
@@ -518,8 +518,8 @@ local function drawTypeChangeScreen()
     if data.billingModel == "periodic" and data.periodUsage > 0 then
       local charge = data.periodUsage * data.ratePerFE
       centreText(12, "Outstanding period usage will be", colors.orange)
-      centreText(13, "charged now: " .. formatCurrency(charge), colors.orange)
-      centreText(14, "New balance: " .. formatCurrency(data.balance - charge), colors.white)
+      centreText(13, "charged now: " .. formatCurrency(charge) .. " LC", colors.orange)
+      centreText(14, "New balance: " .. formatCurrency(data.balance - charge) .. " LC", colors.white)
     else
       centreText(12, "Switch takes effect immediately.", colors.lightGray)
     end
