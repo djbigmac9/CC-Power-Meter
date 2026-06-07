@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.13"
+local VERSION      = "2.14"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -336,6 +336,13 @@ local function drawList()
       local dot, dotFg
       if not e.online then
         dot = " ?? "; dotFg = colors.gray
+      elseif m.balanced then
+        local labels = { buying = "BUY ", selling = "SELL", idle = "IDLE", suspended = "SUSP" }
+        dot   = labels[m.pState] or "BAL "
+        dotFg = (m.pState == "selling"   and colors.lime)
+             or (m.pState == "buying"    and colors.cyan)
+             or (m.pState == "suspended" and colors.red)
+             or colors.gray
       elseif m.powerOn then
         dot = " ON "; dotFg = colors.lime
       else
@@ -429,16 +436,31 @@ local function drawDetail()
   at(1, 3,  "Plan:    ", colors.gray)
   at(10, 3, m.plan == "payg" and "Pay As You Go" or "Periodic", colors.cyan)
 
+  local typeLabel, typeColor
+  if m.balanced then
+    typeLabel, typeColor = "Balanced", colors.purple
+  elseif m.isProducer then
+    typeLabel, typeColor = "Producer", colors.yellow
+  else
+    typeLabel, typeColor = "Consumer", colors.cyan
+  end
   at(1, 4,  "Type:    ", colors.gray)
-  at(10, 4, m.isProducer and "Producer" or "Consumer",
-    m.isProducer and colors.yellow or colors.cyan)
+  at(10, 4, typeLabel, typeColor)
 
   at(1, 5,  "Balance: ", colors.gray)
   at(10, 5, fmtLC(bal), balFg)
 
-  if m.isProducer then
+  if m.balanced then
+    local stateLabel, stateColor = "Idle", colors.gray
+    if     m.pState == "buying"    then stateLabel, stateColor = "Buying",    colors.cyan
+    elseif m.pState == "selling"   then stateLabel, stateColor = "Selling",   colors.lime
+    elseif m.pState == "suspended" then stateLabel, stateColor = "Suspended", colors.red
+    end
+    at(1, 6,  "P2P:     ", colors.gray)
+    at(10, 6, stateLabel .. "  (" .. formatFE(m.isProducer and (m.export or 0) or (m.draw or 0)) .. " FE/t)", stateColor)
+  elseif m.isProducer then
     at(1, 6,  "Export:  ", colors.gray)
-    at(10, 6, formatFE(m.exportRate or 0).." FE/t", colors.yellow)
+    at(10, 6, formatFE(m.export or 0).." FE/t", colors.yellow)
   else
     at(1, 6,  "Draw:    ", colors.gray)
     at(10, 6, formatFE(m.draw or 0).." FE/t", colors.white)
@@ -448,10 +470,15 @@ local function drawDetail()
   at(10, 7, (m.cap or 0) >= MAX_FLOW and "Unlimited"
             or formatFE(m.cap or 0).." FE/t", colors.gray)
 
-  at(1, 8,  "Total:   ", colors.gray)
-  at(10, 8, m.isProducer
-            and formatFE(m.totalExported or 0).." FE out"
-            or  formatFE(m.total or 0).." FE", colors.gray)
+  if m.balanced then
+    at(1, 8,  "Buffer:  ", colors.gray)
+    at(10, 8, string.format("%.0f%%", m.bufferPct or 0), colors.yellow)
+  else
+    at(1, 8,  "Total:   ", colors.gray)
+    at(10, 8, m.isProducer
+              and formatFE(m.totalExported or 0).." FE out"
+              or  formatFE(m.total or 0).." FE", colors.gray)
+  end
 
   at(1, 9,  "Status:  ", colors.gray)
   at(10, 9, online and "Online" or "OFFLINE",
@@ -582,29 +609,36 @@ local function drawDetail()
       end
     end)
 
-  btn(1,    16 + o, bw,   "CHG PLAN",
-    colors.black, colors.yellow, function()
-      local newPlan  = (m.plan == "payg") and "periodic" or "payg"
-      local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
-      confirm({"Change plan for "..(m.player or tostring(selected)).."?",
-               "New plan: "..newLabel}, function()
-        sendCmd(selected, "setplan", newPlan)
-        pushAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(selected)))
-        m.plan = newPlan
-      end, "detail")
-    end)
+  if m.balanced then
+    btn(1,    16 + o, bw,   "PAYG (FIXED)",
+      colors.black, colors.gray, function() end)
+    btn(bw+1, 16 + o, W,    "TYPE: BALANCED",
+      colors.black, colors.gray, function() end)
+  else
+    btn(1,    16 + o, bw,   "CHG PLAN",
+      colors.black, colors.yellow, function()
+        local newPlan  = (m.plan == "payg") and "periodic" or "payg"
+        local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
+        confirm({"Change plan for "..(m.player or tostring(selected)).."?",
+                 "New plan: "..newLabel}, function()
+          sendCmd(selected, "setplan", newPlan)
+          pushAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(selected)))
+          m.plan = newPlan
+        end, "detail")
+      end)
 
-  btn(bw+1, 16 + o, W,
-    m.isProducer and "-> CONSUMER" or "-> PRODUCER",
-    colors.black, colors.orange, function()
-      local newType  = not m.isProducer
-      local newLabel = newType and "Producer" or "Consumer"
-      confirm({"Switch "..(m.player or tostring(selected)).." to "..newLabel.."?"}, function()
-        sendCmd(selected, "settype", newType and "producer" or "consumer")
-        pushAlert("Type -> "..newLabel..": "..(m.player or tostring(selected)))
-        m.isProducer = newType
-      end, "detail")
-    end)
+    btn(bw+1, 16 + o, W,
+      m.isProducer and "-> CONSUMER" or "-> PRODUCER",
+      colors.black, colors.orange, function()
+        local newType  = not m.isProducer
+        local newLabel = newType and "Producer" or "Consumer"
+        confirm({"Switch "..(m.player or tostring(selected)).." to "..newLabel.."?"}, function()
+          sendCmd(selected, "settype", newType and "producer" or "consumer")
+          pushAlert("Type -> "..newLabel..": "..(m.player or tostring(selected)))
+          m.isProducer = newType
+        end, "detail")
+      end)
+  end
 
   drawUpdateBanner()
   hline(H-1)
