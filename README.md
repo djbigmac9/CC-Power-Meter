@@ -103,7 +103,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 - Earns **75%** of the standard rate per FE exported
 - Balance accumulates — producer can switch to consumer at any time
 - Outstanding periodic usage is settled before switching type
-- Producers can self-limit their export rate (`LIMIT EXPORT RATE` / `REMOVE EXPORT LIMIT` button) to avoid overloading their own generation setup — this cap is independent of the admin-set consumer rate cap, and each is restored automatically when switching type back
+- Producers can set their own export rate cap (`SET EXPORT CAP` button — choose Unlimited or a preset FE/t limit) to avoid overloading their own generation setup — this cap is independent of the admin-set consumer rate cap, and each is restored automatically when switching type back
 
 ### On-Screen Information
 - Customer name, billing plan, connection type
@@ -121,7 +121,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 | `[TEMP] +200 LC` | Add 200 LC temporary credit |
 | `CHANGE PLAN` | Switch between PAYG and Periodic (charges any outstanding usage first) |
 | `CHANGE TYPE` | Switch between Consumer and Producer (charges any outstanding usage first) |
-| `LIMIT EXPORT RATE / REMOVE EXPORT LIMIT` | Producers only — self-cap export rate at 10,000 FE/t (or remove the limit) |
+| `SET EXPORT CAP` | Producers only — choose an export rate cap (Unlimited or a preset FE/t limit) |
 | `CUT POWER / RESTORE` | Toggle power manually |
 | `PAY NOW (X.XXXX LC)` | Periodic only — pay current period immediately |
 

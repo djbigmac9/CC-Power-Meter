@@ -447,6 +447,15 @@ end
 -- ── Plan / type change screens ────────────────────────────────
 local planChangeActive = false
 local typeChangeActive = false
+local capChangeActive  = false
+
+local CAP_PRESETS = {
+  { label = "Unlimited",   value = MAX_FLOW },
+  { label = "1,000 FE/t",  value = 1000 },
+  { label = "5,000 FE/t",  value = 5000 },
+  { label = "10,000 FE/t", value = 10000 },
+  { label = "50,000 FE/t", value = 50000 },
+}
 
 local function drawPlanChangeScreen()
   cls(); clearButtons()
@@ -537,6 +546,45 @@ local function drawTypeChangeScreen()
   addButton(mid+1, 17, mid+1+btnW, 17, "CANCEL", colors.white, colors.red, function()
     typeChangeActive = false
   end)
+  hline(H-1)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
+  drawButtons()
+end
+
+local function drawCapChangeScreen()
+  cls(); clearButtons()
+  centreText(2, "BEYOND ENERGY",       colors.yellow)
+  centreText(3, "Set Export Rate Cap", colors.lightGray)
+  hline(4)
+  local cur      = data.exportCap or MAX_FLOW
+  local curLabel = cur >= MAX_FLOW and "Unlimited" or formatFE(cur) .. " FE/t"
+  centreText(6, "Current cap: " .. curLabel, colors.white)
+  centreText(7, "Choose a new export rate cap:", colors.lightGray)
+  hline(8)
+  local y = 9
+  for _, preset in ipairs(CAP_PRESETS) do
+    local selected = preset.value == cur
+    local label    = preset.label .. (selected and "  (current)" or "")
+    local fg       = selected and colors.gray or colors.black
+    local bg       = selected and colors.lightGray or colors.cyan
+    addButton(2, y, W-1, y, label, fg, bg, function()
+      if not selected then
+        data.exportCap = preset.value
+        if data.powerOn and exportDetector then
+          exportDetector.setTransferRateLimit(data.exportCap)
+        end
+        saveData()
+      end
+      capChangeActive = false
+    end)
+    centreText(y, label, fg, bg)
+    y = y + 1
+  end
+  hline(y)
+  addButton(2, y+1, W-1, y+1, "CANCEL", colors.white, colors.red, function()
+    capChangeActive = false
+  end)
+  centreText(y+1, "CANCEL", colors.white, colors.red)
   hline(H-1)
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
@@ -675,15 +723,9 @@ local function drawMeterScreen(importRate, exportRate)
   elseif data.isProducer then
     -- Self-managed export rate cap, to avoid overloading own generation setup
     hline(H-4, "\140")
-    local ecap  = data.exportCap or MAX_FLOW
-    local label = ecap >= MAX_FLOW and " LIMIT EXPORT RATE (10,000 FE/t) " or " REMOVE EXPORT LIMIT "
+    local label = " SET EXPORT CAP "
     addButton(2, H-3, W-1, H-3, label, colors.black, colors.cyan, function()
-      data.exportCap = ecap >= MAX_FLOW and 10000 or MAX_FLOW
-      if data.powerOn and exportDetector then
-        exportDetector.setTransferRateLimit(data.exportCap)
-      end
-      saveData()
-      immediateRedraw = true
+      capChangeActive = true
     end)
     centreText(H-3, label, colors.black, colors.cyan)
   else
@@ -807,10 +849,12 @@ local function mainLoop()
     if e == "monitor_touch" then
       local wasType = typeChangeActive
       local wasPlan = planChangeActive
+      local wasCap  = capChangeActive
       checkClick(ev[3], ev[4])
-      if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
+      if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan or capChangeActive ~= wasCap then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
+        elseif capChangeActive then drawCapChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
         immediateRedraw = false
       end
@@ -820,6 +864,7 @@ local function mainLoop()
       if immediateRedraw then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
+        elseif capChangeActive then drawCapChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
         immediateRedraw = false
       end
@@ -853,6 +898,7 @@ local function mainLoop()
       timer = os.startTimer(POLL_INTERVAL)
       if typeChangeActive then drawTypeChangeScreen()
       elseif planChangeActive then drawPlanChangeScreen()
+      elseif capChangeActive then drawCapChangeScreen()
       else drawMeterScreen(importRate, exportRate) end
     end
   end
