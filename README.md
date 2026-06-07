@@ -38,15 +38,18 @@ The setup script will:
 | Peripheral | Side | Required |
 |---|---|---|
 | Advanced Monitor | Any | Yes |
-| Ender Modem | Any | Yes |
+| Ender Modem (wireless) | Any | Yes |
 | Energy Detector (import) | **Left** | One of these two |
 | Energy Detector (export) | **Right** | is required |
-| Mekanism Energy Cube(s) | Any / wired network | Required for **Balanced** mode only |
+| Wired Modem + Mekanism Energy Cube(s) | Any / wired network | Required for **Balanced** mode only |
 
 - **Left** detector measures power drawn **from** the grid (consumers)
 - **Right** detector measures power exported **to** the grid (producers)
 - Both detectors can be installed for meters that may switch type, and are **required** for Balanced mode (it both buys and sells)
-- Energy Cubes are auto-detected anywhere on the network by name (e.g. `basicEnergyCube_1`, `ultimateEnergyCube_1`) — one or many can be wired together as a shared buffer
+- The meter needs **two different kinds of modem for two different jobs**:
+  - A **wireless (Ender) Modem** is what lets it "speak back" to the admin panel and pocket computer over the broadcast/command channels — without one, the meter boots into an error screen, since it has no way to report status or receive commands
+  - A **Wired Modem** bridges it onto a local Mekanism cable network — this is the *only* way Energy Cube(s) become visible to the meter, so **no wired modem means no cubes, which means Balanced mode is unavailable** (the meter can still be a Consumer or Producer)
+- Energy Cubes are auto-detected over the wired network by name (e.g. `basicEnergyCube_1`, `ultimateEnergyCube_1`) — one or many can be wired together as a shared buffer. This also covers the case of a customer who'd rather feed their own private power plant directly (Producer-only) than join a shared buffer
 
 ### Admin Panel
 | Peripheral | Required |
@@ -108,8 +111,9 @@ On first boot the meter walks a new customer through a 3-step setup:
 - Producers can set their own export rate cap (`SET EXPORT CAP` button — choose Unlimited or a preset FE/t limit) to avoid overloading their own generation setup — this cap is independent of the admin-set consumer rate cap, and each is restored automatically when switching type back
 
 ### Balanced Mode (Auto P2P)
-- A third connection type, chosen at registration and fixed for the meter's life (no `CHANGE TYPE`)
-- Requires one or more **Mekanism Energy Cubes** on the network — auto-detected by name (e.g. `basicEnergyCube_1`) and combined into a single shared buffer
+- A third connection type, selectable at registration **or** any time afterwards via `CHANGE TYPE` (on the meter, admin panel, or pocket computer) — switching to/from Balanced takes effect immediately and settles any outstanding periodic usage first
+- Requires one or more **Mekanism Energy Cubes** reachable over a **Wired Modem** network — auto-detected by name (e.g. `basicEnergyCube_1`) and combined into a single shared buffer
+- **Gated by hardware**: a meter only offers Balanced as an option (at registration, in `CHANGE TYPE` on the meter itself, and in the remote pickers on the admin panel/pocket computer) if it actually detects at least one Energy Cube — no wired modem or no cubes means the option is shown disabled/unavailable, and the meter quietly refuses any `settype "balanced"` command. Customers without a buffer simply pick Consumer or Producer (e.g. someone feeding their own private power plant straight into the grid as a Producer)
 - Automatically switches between **buying**, **selling**, and **idle** based on the buffer's combined charge percentage, using hardcoded thresholds:
   - Buffer ≥ **80%** → start **selling** surplus to the grid (earns at the producer rate, subject to `SET EXPORT CAP`)
   - Buffer ≤ **25%** → start **buying** to top up the buffer (charged at the standard rate, subject to the admin `SET CAP`)
@@ -133,12 +137,12 @@ On first boot the meter walks a new customer through a 3-step setup:
 |---|---|
 | `[TEMP] +200 LC` | Add 200 LC temporary credit |
 | `CHANGE PLAN` | Switch between PAYG and Periodic (charges any outstanding usage first) |
-| `CHANGE TYPE` | Switch between Consumer and Producer (charges any outstanding usage first) |
+| `CHANGE TYPE` | Opens a picker listing **Consumer / Producer / Balanced** — pick a different type and confirm to switch (charges any outstanding usage first) |
 | `SET EXPORT CAP` | Producers and Balanced meters — choose an export/sell-side rate cap (Unlimited or a preset FE/t limit) |
 | `CUT POWER / RESTORE` | Toggle power manually (Balanced: also forces Suspended / re-evaluates state) |
 | `PAY NOW (X.XXXX LC)` | Periodic only — pay current period immediately |
 
-> **Balanced meters** show a reduced button set — `[TEMP]`, `SET EXPORT CAP`, and `CUT POWER / RESTORE` only. There's no `CHANGE PLAN` (always PAYG) or `CHANGE TYPE` (Balanced is fixed at registration).
+> **Balanced meters** show a reduced button set — `[TEMP]`, `CHANGE TYPE`, `SET EXPORT CAP`, and `CUT POWER / RESTORE`. There's no `CHANGE PLAN` since Balanced meters are always billed PAYG.
 
 ---
 
@@ -148,6 +152,7 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 
 ### Dashboard
 - Live generation, total draw, and surplus for the whole network
+- **Company balance** — running total of all LC collected from consumers/buyers minus all LC paid out to producers/sellers (i.e. the operator's net profit, normally the 25% margin between the buy and sell rates)
 - Per-meter table: name, plan, balance, draw/export rate, cap, power status, type tag `[P]`/`[C]`/`[B]`
 - Balanced meters (`[B]`) show their live status — Buying / Selling / Idle / Suspended — and buffer % in place of a fixed plan/type
 - Click any row to open the customer detail screen
@@ -161,7 +166,7 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 | `RENAME` | Change the player name on this meter |
 | `CHG PLAN` | Toggle billing plan (PAYG ↔ Periodic) |
 | `UPDATE` | Push a remote update to this meter |
-| `-> PRODUCER / -> CONSUMER` | Switch connection type remotely |
+| `CHANGE TYPE` | Opens a picker listing **Consumer / Producer / Balanced** — pick a different type and confirm to switch remotely |
 
 - For periodic consumers: shows live period cost and next billing countdown
 - Player is whispered via Chat Box on power cut/restore and low balance (if Chat Box is attached)
@@ -181,9 +186,9 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 
 Runs on an Advanced Pocket Computer with an Ender Modem.
 
-- **List screen** — all meters with online status and power state
+- **List screen** — company balance (operator's net profit), all meters with online status and power state
 - **Detail screen** — balance, draw/export, plan, type, period cost, countdown
-- Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, SET CAP (keyboard entry), UPDATE METER, RENAME, CHG PLAN, toggle type
+- Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, SET CAP (keyboard entry), UPDATE METER, RENAME, CHG PLAN, CHANGE TYPE (Consumer/Producer/Balanced picker)
 - Global: CUT ALL, RESTORE ALL, UPD ALL
 - Alert log with count indicator
 - Update available banner
@@ -231,7 +236,7 @@ Meters accept these commands from the admin or pocket computer:
 | `setbalance` | number | Set balance directly |
 | `setrate` | number | Set LC/FE rate |
 | `setplan` | `"payg"` or `"periodic"` | Change billing plan (ignored by Balanced meters — always PAYG) |
-| `settype` | `"producer"` or `"consumer"` | Change connection type (ignored by Balanced meters — type is fixed at registration) |
+| `settype` | `"producer"`, `"consumer"`, or `"balanced"` | Change connection type — handles every transition, including switching to/from Balanced (settles outstanding periodic usage and sets up/tears down buffer detection as needed) |
 | `setname` | string | Rename the meter |
 | `setcap` | number | Set the admin-controlled import (consumer-side) FE/t rate cap — producers manage their own export cap locally |
 | `update` | — | Download latest version and reboot |
@@ -244,7 +249,7 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 
 | File | Current Version |
 |---|---|
-| meter.lua | 3.12 |
-| admin.lua | 3.6 |
-| pocket.lua | 2.14 |
+| meter.lua | 3.15 |
+| admin.lua | 3.9 |
+| pocket.lua | 2.18 |
 | setup.lua | — |

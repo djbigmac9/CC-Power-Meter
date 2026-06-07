@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.14"
+local VERSION      = "2.18"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -110,6 +110,30 @@ local function pushAlert(msg)
   if #alerts > 20 then table.remove(alerts) end
 end
 
+-- ── Buttons ──────────────────────────────────────────────────
+-- (declared before the Update section so drawUpdateBanner — which
+--  inserts into btns — closes over the real local, not a nil global)
+local btns = {}
+local function clearBtns() btns = {} end
+
+local function btn(x1, y, x2, label, fg, bg, fn)
+  local bw  = x2 - x1 + 1
+  local pad = math.max(0, math.floor((bw - #label) / 2))
+  local str = string.rep(" ", pad) .. label
+  str = str .. string.rep(" ", math.max(0, bw - #str))
+  at(x1, y, str, fg or colors.black, bg or colors.gray)
+  table.insert(btns, {x1=x1, x2=x2, y=y, fn=fn})
+end
+
+local function click(x, y)
+  for _, b in ipairs(btns) do
+    if y == b.y and x >= b.x1 and x <= b.x2 then
+      b.fn(); return true
+    end
+  end
+  return false
+end
+
 -- ── Update ───────────────────────────────────────────────────
 local function parseVersion(v)
   local major, minor = v:match("(%d+)%.(%d+)")
@@ -185,28 +209,6 @@ local function drawUpdateBanner()
   table.insert(btns, {x1=1, x2=W, y=H-1, fn=function()
     doUpdate()
   end})
-end
-
--- ── Buttons ──────────────────────────────────────────────────
-local btns = {}
-local function clearBtns() btns = {} end
-
-local function btn(x1, y, x2, label, fg, bg, fn)
-  local bw  = x2 - x1 + 1
-  local pad = math.max(0, math.floor((bw - #label) / 2))
-  local str = string.rep(" ", pad) .. label
-  str = str .. string.rep(" ", math.max(0, bw - #str))
-  at(x1, y, str, fg or colors.black, bg or colors.gray)
-  table.insert(btns, {x1=x1, x2=x2, y=y, fn=fn})
-end
-
-local function click(x, y)
-  for _, b in ipairs(btns) do
-    if y == b.y and x >= b.x1 and x <= b.x2 then
-      b.fn(); return true
-    end
-  end
-  return false
 end
 
 -- ── Sorted meters ─────────────────────────────────────────────
@@ -321,14 +323,23 @@ local function drawList()
     end})
   end
 
-  hline(2)
+  -- Company balance — total revenue collected from consumers/buyers minus
+  -- total payouts to producers/sellers (the operator's running profit)
+  local companyBalance = 0
+  for _, m in pairs(meters) do
+    companyBalance = companyBalance + (m.totalRevenue or 0) - (m.totalPayout or 0)
+  end
+  at(1, 2, "Company: " .. fmtLC(companyBalance),
+    companyBalance >= 0 and colors.lime or colors.red)
+
+  hline(3)
 
   -- Customer rows — one per line, just name + status dot
   local list = sorted()
-  local rowY = 3
+  local rowY = 4
 
   if #list == 0 then
-    at(1, 3, "Waiting for meters...", colors.gray)
+    at(1, 4, "Waiting for meters...", colors.gray)
   else
     for _, e in ipairs(list) do
       if rowY > H - 2 then break end
@@ -612,8 +623,6 @@ local function drawDetail()
   if m.balanced then
     btn(1,    16 + o, bw,   "PAYG (FIXED)",
       colors.black, colors.gray, function() end)
-    btn(bw+1, 16 + o, W,    "TYPE: BALANCED",
-      colors.black, colors.gray, function() end)
   else
     btn(1,    16 + o, bw,   "CHG PLAN",
       colors.black, colors.yellow, function()
@@ -626,19 +635,12 @@ local function drawDetail()
           m.plan = newPlan
         end, "detail")
       end)
-
-    btn(bw+1, 16 + o, W,
-      m.isProducer and "-> CONSUMER" or "-> PRODUCER",
-      colors.black, colors.orange, function()
-        local newType  = not m.isProducer
-        local newLabel = newType and "Producer" or "Consumer"
-        confirm({"Switch "..(m.player or tostring(selected)).." to "..newLabel.."?"}, function()
-          sendCmd(selected, "settype", newType and "producer" or "consumer")
-          pushAlert("Type -> "..newLabel..": "..(m.player or tostring(selected)))
-          m.isProducer = newType
-        end, "detail")
-      end)
   end
+
+  btn(bw+1, 16 + o, W,    "CHANGE TYPE",
+    colors.black, colors.orange, function()
+      screen = "typepicker"
+    end)
 
   drawUpdateBanner()
   hline(H-1)
@@ -647,6 +649,60 @@ local function drawDetail()
   btn(bw+1, H, W,    #alerts>0 and "ALERTS["..#alerts.."]" or "ALERTS",
     colors.black, #alerts>0 and colors.orange or colors.gray,
     function() screen = "alerts" end)
+end
+
+-- ── TYPE PICKER SCREEN ────────────────────────────────────────
+local TYPE_PICKER_LABELS = { consumer = "Consumer", producer = "Producer", balanced = "Balanced (Auto P2P)" }
+local TYPE_PICKER_COLORS = { consumer = colors.cyan, producer = colors.lime, balanced = colors.yellow }
+
+local function drawTypePicker()
+  if not selected or not meters[selected] then
+    screen = "list"; return
+  end
+  cls(); clearBtns()
+
+  local m       = meters[selected]
+  local curType = m.balanced and "balanced" or (m.isProducer and "producer" or "consumer")
+
+  at(1, 1, string.rep(" ", W), colors.black, colors.yellow)
+  at(1, 1, "CHANGE CONNECTION TYPE", colors.black, colors.yellow)
+  hline(2)
+
+  at(1, 3, "Player:  " .. (m.player or tostring(selected)),  colors.white)
+  at(1, 4, "Current: " .. TYPE_PICKER_LABELS[curType],       colors.white)
+  hline(5)
+  at(1, 6, "Select a new connection type:", colors.lightGray)
+
+  local order = { "consumer", "producer", "balanced" }
+  local rowY  = 8
+  for _, t in ipairs(order) do
+    if t == curType then
+      at(1, rowY, string.rep(" ", W), colors.lightGray, colors.gray)
+      at(2, rowY, TYPE_PICKER_LABELS[t] .. "  (current)", colors.lightGray, colors.gray)
+    elseif t == "balanced" and m.canBalance == false then
+      at(1, rowY, string.rep(" ", W), colors.gray, colors.black)
+      at(2, rowY, TYPE_PICKER_LABELS[t] .. " (no cube)", colors.gray, colors.black)
+    else
+      local label = TYPE_PICKER_LABELS[t]
+      btn(1, rowY, W, label, colors.black, TYPE_PICKER_COLORS[t], function()
+        confirm({"Switch "..(m.player or tostring(selected)).." to "..label.."?",
+                 "The meter applies the change immediately."}, function()
+          sendCmd(selected, "settype", t)
+          pushAlert("Type -> "..label..": "..(m.player or tostring(selected)))
+          if t == "balanced" then
+            m.balanced, m.isProducer = true, false
+          else
+            m.balanced, m.isProducer = false, (t == "producer")
+          end
+        end, "detail")
+      end)
+    end
+    rowY = rowY + 2
+  end
+
+  drawUpdateBanner()
+  hline(H-1)
+  btn(1, H, W, "< BACK", colors.black, colors.gray, function() screen = "detail" end)
 end
 
 -- ── ALERTS SCREEN ─────────────────────────────────────────────
@@ -679,6 +735,7 @@ local function redraw()
   elseif screen == "confirm" then drawConfirm()
   elseif screen == "list"    then drawList()
   elseif screen == "detail"  then drawDetail()
+  elseif screen == "typepicker" then drawTypePicker()
   elseif screen == "alerts"  then drawAlerts()
   end
   term.setBackgroundColor(colors.black)
@@ -726,6 +783,8 @@ while true do
     if k == keys.backspace or k == keys.q then
       if screen == "detail" or screen == "alerts" then
         screen = "list"; redraw()
+      elseif screen == "typepicker" then
+        screen = "detail"; redraw()
       end
     end
   end

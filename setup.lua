@@ -6,6 +6,23 @@
 
 local BASE_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/"
 
+-- Wireless (Ender) modems talk to the admin/pocket over the broadcast
+-- channels; wired modems instead bridge onto a local Mekanism cable network
+-- (which is how Energy Cubes become visible). A meter benefits from having
+-- both, but they serve two different jobs - check for them separately.
+local function isWirelessModem(w) return w.isWireless ~= nil and w.isWireless() end
+
+local function findModem(wireless)
+  return peripheral.find("modem", function(_, w) return isWirelessModem(w) == wireless end)
+end
+
+local function hasEnergyCube()
+  for _, name in ipairs(peripheral.getNames()) do
+    if name:match("[Ee]nergy[Cc]ube_%d+") then return true end
+  end
+  return false
+end
+
 local MACHINES = {
   {
     key  = "meter",
@@ -13,9 +30,9 @@ local MACHINES = {
     file = "meter.lua",
     desc = "Customer-facing power meter on a CC monitor",
     checks = {
-      { name = "Ender Modem",               required = true,
-        fn = function() return peripheral.find("modem") ~= nil end,
-        fix = "Attach an Ender Modem to any side" },
+      { name = "Ender Modem (wireless)",    required = true,
+        fn = function() return findModem(true) ~= nil end,
+        fix = "Attach an Ender Modem (wireless) to any side - this is what lets the meter talk to the admin panel/pocket computer" },
       { name = "CC Monitor",                required = true,
         fn = function() return peripheral.find("monitor") ~= nil end,
         fix = "Attach a CC Advanced Monitor to any side" },
@@ -31,6 +48,12 @@ local MACHINES = {
              and peripheral.getType("right") == "energy_detector"
         end,
         fix = "Place an Energy Detector on the RIGHT side (player → grid)" },
+      { name = "Wired Modem (Balanced mode)", required = false,
+        fn = function() return findModem(false) ~= nil end,
+        fix = "Attach a Wired Modem and connect it to a Mekanism cable network - without one, Energy Cubes can't be seen and Balanced mode stays unavailable (Consumer/Producer still work fine)" },
+      { name = "Energy Cube(s) (Balanced mode)", required = false,
+        fn = hasEnergyCube,
+        fix = "Wire one or more Mekanism Energy Cubes onto the network as a shared buffer - required for Balanced mode" },
     },
     -- at least one detector is required even though neither alone is
     extra = function()
@@ -48,9 +71,9 @@ local MACHINES = {
     file = "admin.lua",
     desc = "Admin monitor panel for managing all meters",
     checks = {
-      { name = "Ender Modem",      required = true,
-        fn = function() return peripheral.find("modem") ~= nil end,
-        fix = "Attach an Ender Modem to any side" },
+      { name = "Ender Modem (wireless)", required = true,
+        fn = function() return findModem(true) ~= nil end,
+        fix = "Attach an Ender Modem (wireless) to any side" },
       { name = "CC Monitor",       required = true,
         fn = function() return peripheral.find("monitor") ~= nil end,
         fix = "Attach a CC Advanced Monitor to any side" },
@@ -75,9 +98,9 @@ local MACHINES = {
     file = "pocket.lua",
     desc = "Pocket computer remote for managing meters on the go",
     checks = {
-      { name = "Ender Modem", required = true,
-        fn = function() return peripheral.find("modem") ~= nil end,
-        fix = "Attach an Ender Modem to the pocket computer" },
+      { name = "Ender Modem (wireless)", required = true,
+        fn = function() return findModem(true) ~= nil end,
+        fix = "Attach an Ender Modem (wireless) to the pocket computer" },
     },
   },
 }
