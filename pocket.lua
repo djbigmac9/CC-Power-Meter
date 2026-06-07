@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.15"
+local VERSION      = "2.16"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -110,6 +110,30 @@ local function pushAlert(msg)
   if #alerts > 20 then table.remove(alerts) end
 end
 
+-- ── Buttons ──────────────────────────────────────────────────
+-- (declared before the Update section so drawUpdateBanner — which
+--  inserts into btns — closes over the real local, not a nil global)
+local btns = {}
+local function clearBtns() btns = {} end
+
+local function btn(x1, y, x2, label, fg, bg, fn)
+  local bw  = x2 - x1 + 1
+  local pad = math.max(0, math.floor((bw - #label) / 2))
+  local str = string.rep(" ", pad) .. label
+  str = str .. string.rep(" ", math.max(0, bw - #str))
+  at(x1, y, str, fg or colors.black, bg or colors.gray)
+  table.insert(btns, {x1=x1, x2=x2, y=y, fn=fn})
+end
+
+local function click(x, y)
+  for _, b in ipairs(btns) do
+    if y == b.y and x >= b.x1 and x <= b.x2 then
+      b.fn(); return true
+    end
+  end
+  return false
+end
+
 -- ── Update ───────────────────────────────────────────────────
 local function parseVersion(v)
   local major, minor = v:match("(%d+)%.(%d+)")
@@ -185,28 +209,6 @@ local function drawUpdateBanner()
   table.insert(btns, {x1=1, x2=W, y=H-1, fn=function()
     doUpdate()
   end})
-end
-
--- ── Buttons ──────────────────────────────────────────────────
-local btns = {}
-local function clearBtns() btns = {} end
-
-local function btn(x1, y, x2, label, fg, bg, fn)
-  local bw  = x2 - x1 + 1
-  local pad = math.max(0, math.floor((bw - #label) / 2))
-  local str = string.rep(" ", pad) .. label
-  str = str .. string.rep(" ", math.max(0, bw - #str))
-  at(x1, y, str, fg or colors.black, bg or colors.gray)
-  table.insert(btns, {x1=x1, x2=x2, y=y, fn=fn})
-end
-
-local function click(x, y)
-  for _, b in ipairs(btns) do
-    if y == b.y and x >= b.x1 and x <= b.x2 then
-      b.fn(); return true
-    end
-  end
-  return false
 end
 
 -- ── Sorted meters ─────────────────────────────────────────────
