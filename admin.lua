@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v3.5
+--  BeyondSMP Admin Panel v3.6
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.5"
+local VERSION      = "3.6"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -470,11 +470,18 @@ local function drawDashboard()
     local m   = entry.m
     local bal = m.balance or 0
     local stTx    = m.powerOn and "ON" or "OFF"
-    local typeTag  = m.isProducer and "[P]" or "[C]"
-    local rateDisp = m.isProducer and (m.exportRate or 0) or (m.draw or 0)
+    local typeTag  = m.balanced and "[B]" or (m.isProducer and "[P]" or "[C]")
+    local rateDisp = m.isProducer and (m.export or 0) or (m.draw or 0)
+    local planDisp
+    if m.balanced then
+      local labels = { buying = "Buying", selling = "Selling", idle = "Idle", suspended = "Suspended" }
+      planDisp = (labels[m.pState] or "Balanced"):sub(1,8)
+    else
+      planDisp = (m.plan or "?"):sub(1,8)
+    end
     local line = string.format("%-13s %-8s %8s LC %7s/t %7s  %s %s",
       (m.player or "?"):sub(1,13),
-      (m.plan or "?"):sub(1,8),
+      planDisp,
       formatCurrency(bal),
       formatFE(rateDisp),
       (m.cap or 0) >= 2147483647 and "Unlim" or formatFE(m.cap or 0),
@@ -613,16 +620,32 @@ local function drawCustomerScreen()
   writeAt(2, 3,  "Player:    " .. (m.player or "Unknown"),                    colors.white)
   writeAt(2, 4,  "Plan:      " .. (m.plan=="payg" and "Pay As You Go" or "Periodic"), colors.cyan)
   writeAt(2, 5,  "Meter ID:  " .. tostring(id),                               colors.gray)
-  writeAt(2, 6,  "Type:      " .. (m.isProducer and "Producer" or "Consumer"),
-    m.isProducer and colors.yellow or colors.cyan)
+  local typeLabel, typeColor
+  if m.balanced then
+    typeLabel, typeColor = "Balanced (Auto P2P)", colors.purple
+  elseif m.isProducer then
+    typeLabel, typeColor = "Producer", colors.yellow
+  else
+    typeLabel, typeColor = "Consumer", colors.cyan
+  end
+  writeAt(2, 6,  "Type:      " .. typeLabel, typeColor)
   hline(7)
 
   local bal = m.balance or 0
   local balFg = bal > 50 and colors.lime or (bal > 0 and colors.yellow or colors.red)
 
   writeAt(2, 8,  "Balance:        " .. formatCurrency(bal) .. " LC",          balFg)
-  if m.isProducer then
-    writeAt(2, 9,  "Exporting:      " .. formatFE(m.exportRate or 0) .. " FE/t",   colors.yellow)
+  if m.balanced then
+    local stateLabel, stateColor = "Idle", colors.gray
+    if     m.pState == "buying"    then stateLabel, stateColor = "Buying",    colors.cyan
+    elseif m.pState == "selling"   then stateLabel, stateColor = "Selling",   colors.lime
+    elseif m.pState == "suspended" then stateLabel, stateColor = "Suspended", colors.red
+    end
+    writeAt(2, 9,  "P2P status:     " .. stateLabel,                              stateColor)
+    writeAt(2, 10, "Buffer:         " .. string.format("%.0f%%", m.bufferPct or 0) ..
+                   "  (" .. formatFE(m.isProducer and (m.export or 0) or (m.draw or 0)) .. " FE/t)", colors.yellow)
+  elseif m.isProducer then
+    writeAt(2, 9,  "Exporting:      " .. formatFE(m.export or 0) .. " FE/t",   colors.yellow)
     writeAt(2, 10, "Total exported: " .. formatFE(m.totalExported or 0) .. " FE",  colors.white)
   else
     writeAt(2, 9,  "Live draw:      " .. formatFE(m.draw or 0) .. " FE/t",         colors.white)
@@ -725,17 +748,22 @@ local function drawCustomerScreen()
         end, "customer")
       end
     end)
-  addButton(2+bw4,      H-2, 1+bw4*2,  H-2, "CHG PLAN",
-    colors.black, colors.yellow, function()
-      local newPlan  = (m.plan == "payg") and "periodic" or "payg"
-      local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
-      confirm({"Change plan for "..(m.player or tostring(id)).."?",
-               "New plan: "..newLabel}, function()
-        sendCommand(id, "setplan", newPlan)
-        addAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(id)))
-        m.plan = newPlan
-      end, "customer")
-    end)
+  if m.balanced then
+    addButton(2+bw4,      H-2, 1+bw4*2,  H-2, "PAYG (FIXED)",
+      colors.black, colors.gray, function() end)
+  else
+    addButton(2+bw4,      H-2, 1+bw4*2,  H-2, "CHG PLAN",
+      colors.black, colors.yellow, function()
+        local newPlan  = (m.plan == "payg") and "periodic" or "payg"
+        local newLabel = newPlan == "payg" and "Pay As You Go" or "Periodic"
+        confirm({"Change plan for "..(m.player or tostring(id)).."?",
+                 "New plan: "..newLabel}, function()
+          sendCommand(id, "setplan", newPlan)
+          addAlert("Plan -> " .. newLabel .. ": " .. (m.player or tostring(id)))
+          m.plan = newPlan
+        end, "customer")
+      end)
+  end
   addButton(2+bw4*2,    H-2, 1+bw4*3,  H-2, "UPDATE",
     colors.black, colors.purple, function()
       confirm({"Push update to "..(m.player or tostring(id)).."?",
@@ -744,17 +772,22 @@ local function drawCustomerScreen()
         addAlert("Update sent to "..(m.player or id))
       end, "customer")
     end)
-  addButton(2+bw4*3,    H-2, W,         H-2,
-    m.isProducer and "-> CONSUMER" or "-> PRODUCER",
-    colors.black, colors.orange, function()
-      local newType  = not m.isProducer
-      local newLabel = newType and "Producer" or "Consumer"
-      confirm({"Switch "..(m.player or tostring(id)).." to "..newLabel.."?"}, function()
-        sendCommand(id, "settype", newType and "producer" or "consumer")
-        addAlert("Type -> "..newLabel..": "..(m.player or tostring(id)))
-        m.isProducer = newType
-      end, "customer")
-    end)
+  if m.balanced then
+    addButton(2+bw4*3,    H-2, W,         H-2, "TYPE: BALANCED",
+      colors.black, colors.gray, function() end)
+  else
+    addButton(2+bw4*3,    H-2, W,         H-2,
+      m.isProducer and "-> CONSUMER" or "-> PRODUCER",
+      colors.black, colors.orange, function()
+        local newType  = not m.isProducer
+        local newLabel = newType and "Producer" or "Consumer"
+        confirm({"Switch "..(m.player or tostring(id)).." to "..newLabel.."?"}, function()
+          sendCommand(id, "settype", newType and "producer" or "consumer")
+          addAlert("Type -> "..newLabel..": "..(m.player or tostring(id)))
+          m.isProducer = newType
+        end, "customer")
+      end)
+  end
 
   hline(H-1)
   drawUpdateBanner()

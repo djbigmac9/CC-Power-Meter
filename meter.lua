@@ -1,8 +1,10 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.11
+--  BeyondSMP Electric Meter v3.12
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
+--    Energy Cube(s)  = any side / wired network (Balanced mode buffer,
+--                      auto-detected by name e.g. basicEnergyCube_1)
 --    Monitor         = any side
 --    Ender Modem     = any side
 --  Networking:
@@ -11,7 +13,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.11"
+local VERSION      = "3.12"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -100,6 +102,14 @@ local BROADCAST_EVERY  = 5
 local PERIOD_TICKS     = 1200
 local ticksSincePeriod = 0
 
+-- Balanced (Auto P2P) mode — buffer thresholds, hardcoded for now
+-- (hysteresis: once selling/buying starts it continues until the buffer
+--  returns to the idle release point, so the meter doesn't flicker state
+--  right at the 80%/25% trigger lines)
+local BUFFER_SELL_PCT = 80   -- charge %  — start selling surplus to the grid
+local BUFFER_BUY_PCT  = 25   -- charge %  — start buying to top up the buffer
+local BUFFER_IDLE_PCT = 60   -- charge %  — release point; trade stops here
+
 -- ── Peripheral detection ─────────────────────────────────────
 local importDetector = nil   -- left:  grid → player
 local exportDetector = nil   -- right: player → grid
@@ -111,6 +121,17 @@ if peripheral.isPresent("left") and peripheral.getType("left") == "energy_detect
 end
 if peripheral.isPresent("right") and peripheral.getType("right") == "energy_detector" then
   exportDetector = peripheral.wrap("right")
+end
+
+-- Mekanism Energy Cube(s) — buffer for Balanced (Auto P2P) mode.
+-- Auto-detected anywhere on the network by name, e.g. "basicEnergyCube_1",
+-- "advancedEnergyCube_2", "ultimateEnergyCube_1" ...
+local cubes = {}
+for _, name in ipairs(peripheral.getNames()) do
+  if name:match("[Ee]nergy[Cc]ube_%d+") then
+    local ok, p = pcall(peripheral.wrap, name)
+    if ok and p then table.insert(cubes, p) end
+  end
 end
 
 -- ── Boot error screen ────────────────────────────────────────
@@ -136,6 +157,7 @@ modem.open(COMMAND_CH)
 
 print("Import Detector : " .. (importDetector and "left"  or "not found"))
 print("Export Detector : " .. (exportDetector and "right" or "not found"))
+print("Energy Cube(s)  : " .. (#cubes > 0 and (#cubes .. " found") or "not found (Balanced mode unavailable)"))
 print("Modem           : found")
 print("Monitor         : found")
 print("Listening on ch : " .. COMMAND_CH)
@@ -159,8 +181,15 @@ local data = {
   registered    = false,
   isProducer    = false,
   ratePerFE     = RATE_PER_FE,
-  cap           = MAX_FLOW,   -- admin-set import cap (consumer mode)
-  exportCap     = MAX_FLOW,   -- self-set export cap (producer mode)
+  cap           = MAX_FLOW,   -- admin-set import cap (consumer mode / balanced buying)
+  exportCap     = MAX_FLOW,   -- self-set export cap (producer mode / balanced selling)
+
+  -- Balanced (Auto P2P) mode — selected at initial setup, sticky for the meter's life
+  balanced       = false,
+  pState         = "idle",    -- buying | selling | idle | suspended
+  bufferPct      = 0,
+  bufferEnergy   = 0,
+  bufferCapacity = 0,
 }
 
 local function saveData()
@@ -181,6 +210,11 @@ local function loadData()
       data.isProducer       = data.isProducer     or false
       data.cap              = data.cap            or MAX_FLOW
       data.exportCap        = data.exportCap      or MAX_FLOW
+      data.balanced         = data.balanced       or false
+      data.pState           = data.pState         or "idle"
+      data.bufferPct        = data.bufferPct      or 0
+      data.bufferEnergy     = data.bufferEnergy   or 0
+      data.bufferCapacity   = data.bufferCapacity or 0
     end
   end
 end
@@ -196,6 +230,107 @@ local function setPower(state)
     if exportDetector then exportDetector.setTransferRateLimit(0) end  -- always blocked
   end
   saveData()
+end
+
+-- ── Balanced (Auto P2P) mode ─────────────────────────────────
+-- Reads aggregate charge across all detected energy cubes (handles a single
+-- cube or a networked bank — sums whatever each one reports). Defensive about
+-- exact method names since Mekanism's CC integration can vary by version.
+local function readCubeEnergy(p)
+  local ok1, e = pcall(function()
+    return (p.getEnergy and p.getEnergy())
+        or (p.getEnergyStored and p.getEnergyStored())
+  end)
+  local ok2, c = pcall(function()
+    return (p.getMaxEnergy and p.getMaxEnergy())
+        or (p.getEnergyCapacity and p.getEnergyCapacity())
+        or (p.getMaxEnergyStored and p.getMaxEnergyStored())
+  end)
+  return (ok1 and e) or 0, (ok2 and c) or 0
+end
+
+local function sampleBuffer()
+  local energy, capacity = 0, 0
+  for _, cube in ipairs(cubes) do
+    local e, c = readCubeEnergy(cube)
+    energy   = energy   + (e or 0)
+    capacity = capacity + (c or 0)
+  end
+  data.bufferEnergy   = energy
+  data.bufferCapacity = capacity
+  data.bufferPct      = capacity > 0 and (energy / capacity * 100) or 0
+end
+
+-- Hysteresis: once selling/buying starts, it continues until the buffer
+-- returns to the idle release point (BUFFER_IDLE_PCT) — prevents flapping
+-- right at the 80%/25% trigger lines.
+local function nextBalancedState(pState, pct)
+  if pState == "selling" and pct > BUFFER_IDLE_PCT then return "selling" end
+  if pState == "buying"  and pct < BUFFER_IDLE_PCT then return "buying"  end
+  if pct >= BUFFER_SELL_PCT then return "selling"
+  elseif pct <= BUFFER_BUY_PCT then return "buying"
+  else return "idle" end
+end
+
+-- Drives the detectors directly from the live trade state — unlike
+-- setPower(), "idle"/"suspended" block BOTH directions at once, which the
+-- binary isProducer model can't express.
+local function applyBalancedDetectors()
+  local impLimit, expLimit = 0, 0
+  if data.pState == "buying"  then impLimit = data.cap       or MAX_FLOW end
+  if data.pState == "selling" then expLimit = data.exportCap or MAX_FLOW end
+  if importDetector then importDetector.setTransferRateLimit(impLimit) end
+  if exportDetector then exportDetector.setTransferRateLimit(expLimit) end
+end
+
+-- Cut/restore for balanced meters — bypasses setPower()'s binary
+-- producer/consumer detector logic so it doesn't force a trade direction.
+local function setBalancedPower(state)
+  data.powerOn = state
+  if not state then
+    data.pState     = "suspended"
+    data.isProducer = false
+    applyBalancedDetectors()
+  end
+  saveData()
+end
+
+-- Re-evaluates the live trade state from the current buffer charge. Called
+-- once per poll tick before billing so isProducer/detector limits are current
+-- when rates are sampled and bills applied.
+local function updateBalancedState()
+  if not data.balanced then return end
+  sampleBuffer()
+
+  if not data.powerOn then
+    if data.pState ~= "suspended" then
+      data.pState     = "suspended"
+      data.isProducer = false
+      applyBalancedDetectors()
+      saveData()
+    end
+    return
+  end
+
+  -- No buffer detected — nothing to balance against, hold idle rather than
+  -- reading 0% and perpetually thinking it needs to buy
+  if #cubes == 0 or data.bufferCapacity <= 0 then
+    if data.pState ~= "idle" then
+      data.pState     = "idle"
+      data.isProducer = false
+      applyBalancedDetectors()
+      saveData()
+    end
+    return
+  end
+
+  local newState = nextBalancedState(data.pState or "idle", data.bufferPct)
+  if newState ~= data.pState then
+    data.pState     = newState
+    data.isProducer = (newState == "selling")
+    applyBalancedDetectors()
+    saveData()
+  end
 end
 
 -- ── Networking ───────────────────────────────────────────────
@@ -222,6 +357,9 @@ local function broadcastStatus(importRate, exportRate)
     ratePerFE     = data.ratePerFE,
     billSecsLeft  = billSecsLeft,
     periodCost    = periodCost,
+    balanced      = data.balanced,
+    pState        = data.balanced and data.pState or nil,
+    bufferPct     = data.balanced and data.bufferPct or nil,
   })
 end
 
@@ -230,10 +368,14 @@ local function handleCommand(msg)
   if msg.id ~= os.getComputerID() and msg.id ~= "all" then return end
 
   if msg.cmd == "cut" then
-    setPower(false)
+    if data.balanced then setBalancedPower(false) else setPower(false) end
 
   elseif msg.cmd == "restore" then
-    if data.isProducer or data.balance > 0 then setPower(true) end
+    if data.balanced then
+      if data.balance > 0 then setBalancedPower(true) end
+    elseif data.isProducer or data.balance > 0 then
+      setPower(true)
+    end
 
   elseif msg.cmd == "update" then
     term.setTextColor(colors.orange)
@@ -241,6 +383,7 @@ local function handleCommand(msg)
     doUpdate()
 
   elseif msg.cmd == "setplan" and type(msg.value) == "string" then
+    if data.balanced then return end  -- balanced meters are always PAYG
     if not data.isProducer and data.billingModel == "periodic" and data.periodUsage > 0 then
       local charge = data.periodUsage * data.ratePerFE
       data.balance     = data.balance - charge
@@ -257,14 +400,24 @@ local function handleCommand(msg)
 
   elseif msg.cmd == "setcap" and type(msg.value) == "number" then
     data.cap = msg.value
-    if importDetector and not data.isProducer and data.powerOn then
+    if data.balanced then
+      if importDetector and data.pState == "buying" then
+        importDetector.setTransferRateLimit(data.cap)
+      end
+    elseif importDetector and not data.isProducer and data.powerOn then
       importDetector.setTransferRateLimit(data.cap)
     end
     saveData()
 
   elseif msg.cmd == "setbalance" and type(msg.value) == "number" then
     data.balance = msg.value
-    if not data.isProducer then
+    if data.balanced then
+      if data.balance <= 0 and data.pState == "buying" then
+        setBalancedPower(false)
+      elseif data.balance > 0 and not data.powerOn then
+        setBalancedPower(true)
+      end
+    elseif not data.isProducer then
       setPower(data.balance > 0)
     end
     saveData()
@@ -275,6 +428,7 @@ local function handleCommand(msg)
     saveData()
 
   elseif msg.cmd == "settype" and type(msg.value) == "string" then
+    if data.balanced then return end  -- balanced type is fixed at registration
     local becomingProducer = (msg.value == "producer")
     if becomingProducer and not data.isProducer
         and data.billingModel == "periodic" and data.periodUsage > 0 then
@@ -414,29 +568,48 @@ local function drawRegisterType(name)
   centreText(6, "Step 3 of 3: Connection Type", colors.white)
   centreText(7, "How will " .. name .. " connect to the grid?", colors.lightGray)
   hline(9)
-  local mid  = math.floor(W / 2)
-  local btnW = math.floor(W / 2) - 3
-  writeAt(2,     10, "CONSUMER",          colors.cyan)
-  writeAt(2,     11, "Draws power from",  colors.lightGray)
-  writeAt(2,     12, "the grid. Needs",   colors.lightGray)
-  writeAt(2,     13, "LEFT detector.",    colors.lightGray)
-  writeAt(mid+1, 10, "PRODUCER",          colors.lime)
-  writeAt(mid+1, 11, "Sells surplus to",  colors.lightGray)
-  writeAt(mid+1, 12, "the grid. Needs",   colors.lightGray)
-  writeAt(mid+1, 13, "RIGHT detector.",   colors.lightGray)
-  hline(15)
-  addButton(2,     16, 2+btnW,     16, "CONSUMER", colors.black, colors.cyan, function()
+  local cw = math.floor((W - 6) / 3)
+  local c1 = 2
+  local c2 = c1 + cw + 2
+  local c3 = c2 + cw + 2
+  writeAt(c1, 10, "CONSUMER",          colors.cyan)
+  writeAt(c1, 11, "Draws power from",  colors.lightGray)
+  writeAt(c1, 12, "the grid. Needs",   colors.lightGray)
+  writeAt(c1, 13, "LEFT detector.",    colors.lightGray)
+  writeAt(c2, 10, "PRODUCER",          colors.lime)
+  writeAt(c2, 11, "Sells surplus to",  colors.lightGray)
+  writeAt(c2, 12, "the grid. Needs",   colors.lightGray)
+  writeAt(c2, 13, "RIGHT detector.",   colors.lightGray)
+  writeAt(c3, 10, "BALANCED",          colors.yellow)
+  writeAt(c3, 11, "Auto buy/sell vs.", colors.lightGray)
+  writeAt(c3, 12, "an energy cube",    colors.lightGray)
+  writeAt(c3, 13, "buffer. Needs both",colors.lightGray)
+  writeAt(c3, 14, "detectors + cube.", colors.lightGray)
+  hline(16)
+  addButton(c1, 17, c1+cw-1, 17, "CONSUMER", colors.black, colors.cyan, function()
     data.isProducer = false
     data.playerName = name
     data.registered = true
     setPower(true)
     saveData()
   end)
-  addButton(mid+1, 16, mid+1+btnW, 16, "PRODUCER", colors.black, colors.lime, function()
+  addButton(c2, 17, c2+cw-1, 17, "PRODUCER", colors.black, colors.lime, function()
     data.isProducer = true
     data.playerName = name
     data.registered = true
     setPower(true)
+    saveData()
+  end)
+  addButton(c3, 17, c3+cw-1, 17, "BALANCED", colors.black, colors.yellow, function()
+    data.balanced     = true
+    data.isProducer   = false
+    data.pState       = "idle"
+    data.billingModel = "payg"   -- dynamic buy/sell doesn't fit periodic billing
+    data.playerName   = name
+    data.registered   = true
+    data.powerOn      = true
+    sampleBuffer()
+    applyBalancedDetectors()
     saveData()
   end)
   hline(H-1)
@@ -611,7 +784,18 @@ local function drawMeterScreen(importRate, exportRate)
     writeAt(W - #valStr, y, valStr, valColor or colors.white)
   end
 
-  if data.isProducer then
+  if data.balanced then
+    if data.pState == "selling" then
+      infoRow(4, "Exporting", formatFE(exportRate) .. " FE/t", colors.lime)
+      infoRow(5, "Earning",   string.format("%.4f LC/t", exportRate * data.ratePerFE * 0.75), colors.lime)
+    elseif data.pState == "buying" then
+      infoRow(4, "Drawing",  formatFE(importRate) .. " FE/t", colors.cyan)
+      infoRow(5, "Spending", string.format("%.4f LC/t", importRate * data.ratePerFE), colors.cyan)
+    else
+      infoRow(4, "Flow", "None (idle)", colors.gray)
+      infoRow(5, "Buffer trend", data.bufferPct >= BUFFER_IDLE_PCT and "Holding (high)" or "Holding (low)", colors.gray)
+    end
+  elseif data.isProducer then
     infoRow(4, "Exporting", formatFE(exportRate) .. " FE/t", colors.lime)
     infoRow(5, "Earning",   string.format("%.4f LC/t", exportRate * data.ratePerFE * 0.75), colors.lime)
   else
@@ -631,11 +815,23 @@ local function drawMeterScreen(importRate, exportRate)
   writeAt(W - #balStr, 7, balStr, balCol)
 
   infoRow(8, "Plan", data.billingModel == "payg" and "Pay As You Go" or "Periodic", colors.cyan)
-  infoRow(9, "Type", data.isProducer and "Producer" or "Consumer",
-          data.isProducer and colors.lime or colors.cyan)
+  if not data.balanced then
+    infoRow(9, "Type", data.isProducer and "Producer" or "Consumer",
+            data.isProducer and colors.lime or colors.cyan)
+  end
 
   local nextRow = 12
-  if data.isProducer then
+  if data.balanced then
+    local stateLabel, stateColor = "Idle", colors.gray
+    if     data.pState == "buying"    then stateLabel, stateColor = "Buying",    colors.cyan
+    elseif data.pState == "selling"   then stateLabel, stateColor = "Selling",   colors.lime
+    elseif data.pState == "suspended" then stateLabel, stateColor = "Suspended", colors.red
+    end
+    infoRow(9, "Status", "Balanced - " .. stateLabel, stateColor)
+    infoRow(10, "Buffer", string.format("%.0f%% (%s / %s)", data.bufferPct or 0,
+            formatFE(data.bufferEnergy or 0), formatFE(data.bufferCapacity or 0)), colors.yellow)
+    infoRow(11, "Total traded", formatFE((data.totalConsumed or 0) + (data.totalExported or 0)) .. " FE", colors.white)
+  elseif data.isProducer then
     infoRow(10, "Total exported", formatFE(data.totalExported) .. " FE", colors.lime)
     local ecap = data.exportCap or MAX_FLOW
     infoRow(11, "Export cap", ecap >= MAX_FLOW and "Unlimited" or formatFE(ecap) .. " FE/t", colors.gray)
@@ -671,7 +867,28 @@ local function drawMeterScreen(importRate, exportRate)
   local updRow    = nextRow + 3
 
   -- Full-width power status bar
-  if data.isProducer then
+  if data.balanced then
+    if data.pState == "selling" then
+      writeAt(1, statusRow, string.rep(" ", W), colors.black, colors.lime)
+      centreText(statusRow, " \4 SELLING TO GRID ", colors.black, colors.lime)
+    elseif data.pState == "buying" then
+      writeAt(1, statusRow, string.rep(" ", W), colors.black, colors.cyan)
+      centreText(statusRow, " \4 BUYING FROM GRID ", colors.black, colors.cyan)
+    elseif data.pState == "idle" then
+      writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.gray)
+      centreText(statusRow, " \4 IDLE - BUFFER BALANCED ", colors.white, colors.gray)
+    else -- suspended
+      writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.red)
+      centreText(statusRow, " \4 SUSPENDED - TOP UP TO RESUME ", colors.white, colors.red)
+    end
+    if data.balance < 0 then
+      writeAt(1, warnRow, string.rep(" ", W), colors.black, colors.red)
+      centreText(warnRow, " Outstanding debt \4 top up to restore ", colors.black, colors.red)
+    elseif data.balance <= WARN_BALANCE then
+      writeAt(1, warnRow, string.rep(" ", W), colors.black, colors.orange)
+      centreText(warnRow, " Low balance \4 please top up soon ", colors.black, colors.orange)
+    end
+  elseif data.isProducer then
     if data.powerOn then
       writeAt(1, statusRow, string.rep(" ", W), colors.black, colors.lime)
       centreText(statusRow, " \4 EXPORTING TO GRID ", colors.black, colors.lime)
@@ -720,8 +937,8 @@ local function drawMeterScreen(importRate, exportRate)
       immediateRedraw = true
     end)
     centreText(H-3, label, colors.black, colors.lime)
-  elseif data.isProducer then
-    -- Self-managed export rate cap, to avoid overloading own generation setup
+  elseif data.isProducer or data.balanced then
+    -- Self-managed export rate cap, to avoid overloading own generation/sell setup
     hline(H-4, "\140")
     local label = " SET EXPORT CAP "
     addButton(2, H-3, W-1, H-3, label, colors.black, colors.cyan, function()
@@ -732,31 +949,53 @@ local function drawMeterScreen(importRate, exportRate)
     hline(H-3, "\140")
   end
 
-  local btnW = math.floor((W-4)/4)
-  local b2x  = 2 + btnW + 1
-  local b3x  = b2x + btnW + 1
-  local b4x  = b3x + btnW + 1
+  if data.balanced then
+    -- Balanced meters skip CHANGE PLAN (always PAYG) and CHANGE TYPE
+    -- (the balanced type is fixed at registration) — just TEMP + CUT/RESTORE
+    local mid   = math.floor(W / 2)
+    local btnW2 = math.floor(W / 2) - 3
+    addButton(2, H-2, 2+btnW2, H-2, "[TEMP] +"..TEMP_TOP_UP.." LC",
+      colors.black, colors.purple, function()
+        data.balance = data.balance + TEMP_TOP_UP
+        if not data.powerOn and data.balance > 0 then setBalancedPower(true) end
+        saveData()
+      end)
+    addButton(mid+1, H-2, mid+1+btnW2, H-2,
+      data.powerOn and "CUT POWER" or "RESTORE",
+      colors.white, data.powerOn and colors.red or colors.green, function()
+        if data.powerOn then
+          setBalancedPower(false)
+        elseif data.balance > 0 then
+          setBalancedPower(true)
+        end
+      end)
+  else
+    local btnW = math.floor((W-4)/4)
+    local b2x  = 2 + btnW + 1
+    local b3x  = b2x + btnW + 1
+    local b4x  = b3x + btnW + 1
 
-  addButton(2,   H-2, 2+btnW-1,   H-2, "[TEMP] +"..TEMP_TOP_UP.." LC",
-    colors.black, colors.purple, function()
-      data.balance = data.balance + TEMP_TOP_UP
-      if not data.isProducer and not data.powerOn and data.balance > 0 then setPower(true) end
-      saveData()
-    end)
-  addButton(b2x, H-2, b2x+btnW-1, H-2, "CHANGE PLAN",
-    colors.black, colors.cyan, function() planChangeActive = true end)
-  addButton(b3x, H-2, b3x+btnW-1, H-2, "CHANGE TYPE",
-    colors.black, colors.orange, function() typeChangeActive = true end)
-  addButton(b4x, H-2, W-1,        H-2,
-    data.powerOn and (data.isProducer and "STOP EXPORT" or "CUT POWER")
-                 or  (data.isProducer and "START EXPORT" or "RESTORE"),
-    colors.white, data.powerOn and colors.red or colors.green, function()
-      if data.powerOn then
-        setPower(false)
-      elseif data.isProducer or data.balance > 0 then
-        setPower(true)
-      end
-    end)
+    addButton(2,   H-2, 2+btnW-1,   H-2, "[TEMP] +"..TEMP_TOP_UP.." LC",
+      colors.black, colors.purple, function()
+        data.balance = data.balance + TEMP_TOP_UP
+        if not data.isProducer and not data.powerOn and data.balance > 0 then setPower(true) end
+        saveData()
+      end)
+    addButton(b2x, H-2, b2x+btnW-1, H-2, "CHANGE PLAN",
+      colors.black, colors.cyan, function() planChangeActive = true end)
+    addButton(b3x, H-2, b3x+btnW-1, H-2, "CHANGE TYPE",
+      colors.black, colors.orange, function() typeChangeActive = true end)
+    addButton(b4x, H-2, W-1,        H-2,
+      data.powerOn and (data.isProducer and "STOP EXPORT" or "CUT POWER")
+                   or  (data.isProducer and "START EXPORT" or "RESTORE"),
+      colors.white, data.powerOn and colors.red or colors.green, function()
+        if data.powerOn then
+          setPower(false)
+        elseif data.isProducer or data.balance > 0 then
+          setPower(true)
+        end
+      end)
+  end
 
   hline(H-1, "\140")
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
@@ -871,6 +1110,7 @@ local function mainLoop()
 
     elseif e == "timer" and ev[2] == timer then
       -- Billing, rate sampling, and redraw only on the poll timer
+      updateBalancedState()  -- re-evaluate buy/sell/idle/suspended before sampling rates
       importRate = importDetector and importDetector.getTransferRate and importDetector.getTransferRate() or 0
       exportRate = exportDetector and exportDetector.getTransferRate and exportDetector.getTransferRate() or 0
 
@@ -916,13 +1156,18 @@ monitor.setBackgroundColor(colors.black)
 monitor.clear()
 
 -- Apply correct detector limits on boot based on saved state
-if importDetector then
-  importDetector.setTransferRateLimit(
-    data.isProducer and 0 or (data.powerOn and (data.cap or MAX_FLOW) or 0))
-end
-if exportDetector then
-  exportDetector.setTransferRateLimit(
-    data.isProducer and (data.powerOn and (data.exportCap or MAX_FLOW) or 0) or 0)
+if data.balanced then
+  sampleBuffer()
+  applyBalancedDetectors()
+else
+  if importDetector then
+    importDetector.setTransferRateLimit(
+      data.isProducer and 0 or (data.powerOn and (data.cap or MAX_FLOW) or 0))
+  end
+  if exportDetector then
+    exportDetector.setTransferRateLimit(
+      data.isProducer and (data.powerOn and (data.exportCap or MAX_FLOW) or 0) or 0)
+  end
 end
 
 if not data.registered then runRegistration() end
