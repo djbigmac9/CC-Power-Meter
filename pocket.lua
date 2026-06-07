@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.16"
+local VERSION      = "2.17"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -623,8 +623,6 @@ local function drawDetail()
   if m.balanced then
     btn(1,    16 + o, bw,   "PAYG (FIXED)",
       colors.black, colors.gray, function() end)
-    btn(bw+1, 16 + o, W,    "TYPE: BALANCED",
-      colors.black, colors.gray, function() end)
   else
     btn(1,    16 + o, bw,   "CHG PLAN",
       colors.black, colors.yellow, function()
@@ -637,19 +635,12 @@ local function drawDetail()
           m.plan = newPlan
         end, "detail")
       end)
-
-    btn(bw+1, 16 + o, W,
-      m.isProducer and "-> CONSUMER" or "-> PRODUCER",
-      colors.black, colors.orange, function()
-        local newType  = not m.isProducer
-        local newLabel = newType and "Producer" or "Consumer"
-        confirm({"Switch "..(m.player or tostring(selected)).." to "..newLabel.."?"}, function()
-          sendCmd(selected, "settype", newType and "producer" or "consumer")
-          pushAlert("Type -> "..newLabel..": "..(m.player or tostring(selected)))
-          m.isProducer = newType
-        end, "detail")
-      end)
   end
+
+  btn(bw+1, 16 + o, W,    "CHANGE TYPE",
+    colors.black, colors.orange, function()
+      screen = "typepicker"
+    end)
 
   drawUpdateBanner()
   hline(H-1)
@@ -658,6 +649,57 @@ local function drawDetail()
   btn(bw+1, H, W,    #alerts>0 and "ALERTS["..#alerts.."]" or "ALERTS",
     colors.black, #alerts>0 and colors.orange or colors.gray,
     function() screen = "alerts" end)
+end
+
+-- ── TYPE PICKER SCREEN ────────────────────────────────────────
+local TYPE_PICKER_LABELS = { consumer = "Consumer", producer = "Producer", balanced = "Balanced (Auto P2P)" }
+local TYPE_PICKER_COLORS = { consumer = colors.cyan, producer = colors.lime, balanced = colors.yellow }
+
+local function drawTypePicker()
+  if not selected or not meters[selected] then
+    screen = "list"; return
+  end
+  cls(); clearBtns()
+
+  local m       = meters[selected]
+  local curType = m.balanced and "balanced" or (m.isProducer and "producer" or "consumer")
+
+  at(1, 1, string.rep(" ", W), colors.black, colors.yellow)
+  at(1, 1, "CHANGE CONNECTION TYPE", colors.black, colors.yellow)
+  hline(2)
+
+  at(1, 3, "Player:  " .. (m.player or tostring(selected)),  colors.white)
+  at(1, 4, "Current: " .. TYPE_PICKER_LABELS[curType],       colors.white)
+  hline(5)
+  at(1, 6, "Select a new connection type:", colors.lightGray)
+
+  local order = { "consumer", "producer", "balanced" }
+  local rowY  = 8
+  for _, t in ipairs(order) do
+    if t == curType then
+      at(1, rowY, string.rep(" ", W), colors.lightGray, colors.gray)
+      at(2, rowY, TYPE_PICKER_LABELS[t] .. "  (current)", colors.lightGray, colors.gray)
+    else
+      local label = TYPE_PICKER_LABELS[t]
+      btn(1, rowY, W, label, colors.black, TYPE_PICKER_COLORS[t], function()
+        confirm({"Switch "..(m.player or tostring(selected)).." to "..label.."?",
+                 "The meter applies the change immediately."}, function()
+          sendCmd(selected, "settype", t)
+          pushAlert("Type -> "..label..": "..(m.player or tostring(selected)))
+          if t == "balanced" then
+            m.balanced, m.isProducer = true, false
+          else
+            m.balanced, m.isProducer = false, (t == "producer")
+          end
+        end, "detail")
+      end)
+    end
+    rowY = rowY + 2
+  end
+
+  drawUpdateBanner()
+  hline(H-1)
+  btn(1, H, W, "< BACK", colors.black, colors.gray, function() screen = "detail" end)
 end
 
 -- ── ALERTS SCREEN ─────────────────────────────────────────────
@@ -690,6 +732,7 @@ local function redraw()
   elseif screen == "confirm" then drawConfirm()
   elseif screen == "list"    then drawList()
   elseif screen == "detail"  then drawDetail()
+  elseif screen == "typepicker" then drawTypePicker()
   elseif screen == "alerts"  then drawAlerts()
   end
   term.setBackgroundColor(colors.black)
@@ -737,6 +780,8 @@ while true do
     if k == keys.backspace or k == keys.q then
       if screen == "detail" or screen == "alerts" then
         screen = "list"; redraw()
+      elseif screen == "typepicker" then
+        screen = "detail"; redraw()
       end
     end
   end

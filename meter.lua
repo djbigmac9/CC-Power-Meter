@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.13
+--  BeyondSMP Electric Meter v3.14
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -13,7 +13,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.13"
+local VERSION      = "3.14"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -186,7 +186,7 @@ local data = {
   cap           = MAX_FLOW,   -- admin-set import cap (consumer mode / balanced buying)
   exportCap     = MAX_FLOW,   -- self-set export cap (producer mode / balanced selling)
 
-  -- Balanced (Auto P2P) mode — selected at initial setup, sticky for the meter's life
+  -- Balanced (Auto P2P) mode — selectable at registration or later via CHANGE TYPE
   balanced       = false,
   pState         = "idle",    -- buying | selling | idle | suspended
   bufferPct      = 0,
@@ -337,6 +337,43 @@ local function updateBalancedState()
   end
 end
 
+-- Switches the meter's connection type to "consumer", "producer", or
+-- "balanced", handling outstanding billing and detector/power setup for
+-- every possible transition (this is the single source of truth used by
+-- both the on-meter CHANGE TYPE screen and the remote `settype` command).
+local function applyConnectionType(newType)
+  -- Settle outstanding periodic usage before leaving (non-balanced) consumer mode
+  if not data.isProducer and not data.balanced
+      and data.billingModel == "periodic" and data.periodUsage > 0
+      and newType ~= "consumer" then
+    local charge = data.periodUsage * data.ratePerFE
+    data.balance     = data.balance - charge
+    data.periodUsage = 0
+    ticksSincePeriod = 0
+    if data.balance <= 0 and data.powerOn then setPower(false) end
+  end
+
+  if newType == "balanced" then
+    data.balanced     = true
+    data.isProducer   = false
+    data.pState       = "idle"
+    data.billingModel = "payg"
+    data.powerOn      = true
+    sampleBuffer()
+    applyBalancedDetectors()
+  else
+    data.balanced   = false
+    data.pState     = "idle"
+    data.isProducer = (newType == "producer")
+    if data.isProducer then
+      setPower(true)
+    else
+      setPower(data.powerOn and data.balance > 0)
+    end
+  end
+  saveData()
+end
+
 -- ── Networking ───────────────────────────────────────────────
 local function broadcastStatus(importRate, exportRate)
   local billSecsLeft = nil
@@ -434,23 +471,13 @@ local function handleCommand(msg)
     saveData()
 
   elseif msg.cmd == "settype" and type(msg.value) == "string" then
-    if data.balanced then return end  -- balanced type is fixed at registration
-    local becomingProducer = (msg.value == "producer")
-    if becomingProducer and not data.isProducer
-        and data.billingModel == "periodic" and data.periodUsage > 0 then
-      local charge = data.periodUsage * data.ratePerFE
-      data.balance     = data.balance - charge
-      data.periodUsage = 0
-      ticksSincePeriod = 0
-      if data.balance <= 0 and data.powerOn then setPower(false) end
+    local newType = msg.value
+    if newType ~= "consumer" and newType ~= "producer" and newType ~= "balanced" then
+      return
     end
-    data.isProducer = becomingProducer
-    if becomingProducer then
-      setPower(true)
-    else
-      setPower(data.powerOn and data.balance > 0)
-    end
-    saveData()
+    local curType = data.balanced and "balanced" or (data.isProducer and "producer" or "consumer")
+    if newType == curType then return end
+    applyConnectionType(newType)
   end
 end
 
@@ -626,6 +653,7 @@ end
 -- ── Plan / type change screens ────────────────────────────────
 local planChangeActive = false
 local typeChangeActive = false
+local typeChangeTarget = nil   -- nil = picker view; "consumer"/"producer"/"balanced" = confirm view
 local capChangeActive  = false
 
 local CAP_PRESETS = {
@@ -677,54 +705,83 @@ local function drawPlanChangeScreen()
   drawButtons()
 end
 
+local TYPE_LABELS = { consumer = "Consumer", producer = "Producer", balanced = "Balanced (Auto P2P)" }
+local TYPE_COLORS = { consumer = colors.cyan, producer = colors.lime, balanced = colors.yellow }
+
 local function drawTypeChangeScreen()
   cls(); clearButtons()
   centreText(2, "BEYOND ENERGY",         colors.yellow)
   centreText(3, "Change Connection Type", colors.lightGray)
   hline(4)
-  local curLabel = data.isProducer and "Producer" or "Consumer"
-  local newLabel = data.isProducer and "Consumer" or "Producer"
-  centreText(6, "Current type: " .. curLabel, colors.white)
-  centreText(7, "Switch to:    " .. newLabel, colors.cyan)
-  hline(9)
-  if data.isProducer then
-    centreText(10, "Switching will block export and",  colors.orange)
-    centreText(11, "enable grid import (LEFT side).",  colors.orange)
-    centreText(12, "Switch takes effect immediately.", colors.lightGray)
+
+  local curType = data.balanced and "balanced" or (data.isProducer and "producer" or "consumer")
+
+  if not typeChangeTarget then
+    -- ── Picker view: list all 3 types, current one marked ──────
+    centreText(6, "Current type: " .. TYPE_LABELS[curType], colors.white)
+    centreText(7, "Choose a new connection type below.", colors.lightGray)
+    hline(9)
+    local order = { "consumer", "producer", "balanced" }
+    local rowY  = 11
+    for _, t in ipairs(order) do
+      if t == curType then
+        writeAt(2, rowY, string.rep(" ", W-2), colors.lightGray, colors.gray)
+        writeAt(3, rowY, TYPE_LABELS[t] .. "  (current)", colors.lightGray, colors.gray)
+      else
+        addButton(2, rowY, W-1, rowY, TYPE_LABELS[t], colors.black, TYPE_COLORS[t], function()
+          typeChangeTarget = t
+          immediateRedraw  = true
+        end)
+      end
+      rowY = rowY + 2
+    end
+    hline(H-3)
+    addButton(2, H-2, W-1, H-2, "CANCEL", colors.white, colors.red, function()
+      typeChangeActive = false
+      typeChangeTarget = nil
+    end)
   else
-    centreText(10, "Switching will block grid import", colors.orange)
-    centreText(11, "and enable export (RIGHT side).",  colors.orange)
-    if data.billingModel == "periodic" and data.periodUsage > 0 then
-      local charge = data.periodUsage * data.ratePerFE
-      centreText(12, "Outstanding period usage will be", colors.orange)
-      centreText(13, "charged now: " .. formatCurrency(charge) .. " LC", colors.orange)
-      centreText(14, "New balance: " .. formatCurrency(data.balance - charge) .. " LC", colors.white)
-    else
-      centreText(12, "Switch takes effect immediately.", colors.lightGray)
+    -- ── Confirmation view for the chosen target type ───────────
+    centreText(6, "Current type: " .. TYPE_LABELS[curType], colors.white)
+    centreText(7, "Switch to:    " .. TYPE_LABELS[typeChangeTarget], colors.cyan)
+    hline(9)
+    local row = 10
+    local function line(text, fg) centreText(row, text, fg); row = row + 1 end
+    if typeChangeTarget == "balanced" then
+      line("Requires Energy Cube(s) wired to",  colors.orange)
+      line("the network as a shared buffer.",   colors.orange)
+      line("Always billed Pay As You Go.",      colors.orange)
+      line("Switch takes effect immediately.",  colors.lightGray)
+    elseif typeChangeTarget == "producer" then
+      line("Switching will block grid import",  colors.orange)
+      line("and enable export (RIGHT side).",   colors.orange)
+      if curType == "consumer" and data.billingModel == "periodic" and data.periodUsage > 0 then
+        local charge = data.periodUsage * data.ratePerFE
+        line("Outstanding period usage will be", colors.orange)
+        line("charged now: " .. formatCurrency(charge) .. " LC", colors.orange)
+        line("New balance: " .. formatCurrency(data.balance - charge) .. " LC", colors.white)
+      else
+        line("Switch takes effect immediately.", colors.lightGray)
+      end
+    else -- consumer
+      line("Switching will block export and",   colors.orange)
+      line("enable grid import (LEFT side).",   colors.orange)
+      line("Switch takes effect immediately.",  colors.lightGray)
     end
+    hline(16)
+    local btnW = math.floor(W/2) - 3
+    local mid  = math.floor(W/2)
+    addButton(2,     17, 2+btnW,     17, "CONFIRM", colors.black, colors.lime, function()
+      applyConnectionType(typeChangeTarget)
+      typeChangeTarget = nil
+      typeChangeActive = false
+    end)
+    addButton(mid+1, 17, mid+1+btnW, 17, "BACK", colors.white, colors.gray, function()
+      typeChangeTarget = nil
+      immediateRedraw  = true
+    end)
   end
-  hline(16)
-  local btnW = math.floor(W/2) - 3
-  local mid  = math.floor(W/2)
-  addButton(2,     17, 2+btnW,     17, "CONFIRM", colors.black, colors.lime, function()
-    if not data.isProducer and data.billingModel == "periodic" and data.periodUsage > 0 then
-      local charge = data.periodUsage * data.ratePerFE
-      data.balance     = data.balance - charge
-      data.periodUsage = 0
-      ticksSincePeriod = 0
-      if data.balance <= 0 and data.powerOn then setPower(false) end
-    end
-    data.isProducer = not data.isProducer
-    if data.isProducer then
-      setPower(true)
-    else
-      setPower(data.powerOn and data.balance > 0)
-    end
-    saveData(); typeChangeActive = false
-  end)
-  addButton(mid+1, 17, mid+1+btnW, 17, "CANCEL", colors.white, colors.red, function()
-    typeChangeActive = false
-  end)
+
   hline(H-1)
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
@@ -956,17 +1013,22 @@ local function drawMeterScreen(importRate, exportRate)
   end
 
   if data.balanced then
-    -- Balanced meters skip CHANGE PLAN (always PAYG) and CHANGE TYPE
-    -- (the balanced type is fixed at registration) — just TEMP + CUT/RESTORE
-    local mid   = math.floor(W / 2)
-    local btnW2 = math.floor(W / 2) - 3
-    addButton(2, H-2, 2+btnW2, H-2, "[TEMP] +"..TEMP_TOP_UP.." LC",
+    -- Balanced meters skip CHANGE PLAN (always PAYG) — just TEMP, CHANGE TYPE, CUT/RESTORE
+    local btnW = math.floor((W-4)/3)
+    local b2x  = 2 + btnW + 1
+    local b3x  = b2x + btnW + 1
+    addButton(2, H-2, 2+btnW-1, H-2, "[TEMP] +"..TEMP_TOP_UP.." LC",
       colors.black, colors.purple, function()
         data.balance = data.balance + TEMP_TOP_UP
         if not data.powerOn and data.balance > 0 then setBalancedPower(true) end
         saveData()
       end)
-    addButton(mid+1, H-2, mid+1+btnW2, H-2,
+    addButton(b2x, H-2, b2x+btnW-1, H-2, "CHANGE TYPE",
+      colors.black, colors.orange, function()
+        typeChangeTarget = nil
+        typeChangeActive = true
+      end)
+    addButton(b3x, H-2, W-1,        H-2,
       data.powerOn and "CUT POWER" or "RESTORE",
       colors.white, data.powerOn and colors.red or colors.green, function()
         if data.powerOn then
@@ -990,7 +1052,10 @@ local function drawMeterScreen(importRate, exportRate)
     addButton(b2x, H-2, b2x+btnW-1, H-2, "CHANGE PLAN",
       colors.black, colors.cyan, function() planChangeActive = true end)
     addButton(b3x, H-2, b3x+btnW-1, H-2, "CHANGE TYPE",
-      colors.black, colors.orange, function() typeChangeActive = true end)
+      colors.black, colors.orange, function()
+        typeChangeTarget = nil
+        typeChangeActive = true
+      end)
     addButton(b4x, H-2, W-1,        H-2,
       data.powerOn and (data.isProducer and "STOP EXPORT" or "CUT POWER")
                    or  (data.isProducer and "START EXPORT" or "RESTORE"),

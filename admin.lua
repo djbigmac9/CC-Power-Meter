@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v3.7
+--  BeyondSMP Admin Panel v3.8
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.7"
+local VERSION      = "3.8"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -781,27 +781,67 @@ local function drawCustomerScreen()
         addAlert("Update sent to "..(m.player or id))
       end, "customer")
     end)
-  if m.balanced then
-    addButton(2+bw4*3,    H-2, W,         H-2, "TYPE: BALANCED",
-      colors.black, colors.gray, function() end)
-  else
-    addButton(2+bw4*3,    H-2, W,         H-2,
-      m.isProducer and "-> CONSUMER" or "-> PRODUCER",
-      colors.black, colors.orange, function()
-        local newType  = not m.isProducer
-        local newLabel = newType and "Producer" or "Consumer"
-        confirm({"Switch "..(m.player or tostring(id)).." to "..newLabel.."?"}, function()
-          sendCommand(id, "settype", newType and "producer" or "consumer")
-          addAlert("Type -> "..newLabel..": "..(m.player or tostring(id)))
-          m.isProducer = newType
-        end, "customer")
-      end)
-  end
+  addButton(2+bw4*3,    H-2, W,         H-2, "CHANGE TYPE",
+    colors.black, colors.orange, function()
+      currentScreen = "typepicker"
+    end)
 
   hline(H-1)
   drawUpdateBanner()
   addButton(1, H, W, H, "< BACK",
     colors.black, colors.gray, function() currentScreen="dashboard" end)
+
+  drawButtons()
+end
+
+-- ── Connection-type picker screen ────────────────────────────
+local TYPE_PICKER_LABELS = { consumer = "Consumer", producer = "Producer", balanced = "Balanced (Auto P2P)" }
+local TYPE_PICKER_COLORS = { consumer = colors.cyan, producer = colors.lime, balanced = colors.yellow }
+
+local function drawTypePickerScreen()
+  local m  = meters[selectedMeter]
+  local id = selectedMeter
+  if not m then currentScreen = "dashboard"; return end
+
+  cls(); clearButtons()
+  writeAt(1, 1, string.rep(" ", W), colors.black, colors.yellow)
+  centreText(1, " CHANGE CONNECTION TYPE ", colors.black, colors.yellow)
+
+  local curType = m.balanced and "balanced" or (m.isProducer and "producer" or "consumer")
+
+  writeAt(2, 3, "Player:        " .. (m.player or tostring(id)),       colors.white)
+  writeAt(2, 4, "Current type:  " .. TYPE_PICKER_LABELS[curType],      colors.white)
+  hline(6)
+  centreText(7, "Select a new connection type:", colors.lightGray)
+
+  local order = { "consumer", "producer", "balanced" }
+  local rowY  = 9
+  for _, t in ipairs(order) do
+    if t == curType then
+      writeAt(2, rowY, string.rep(" ", W-2), colors.lightGray, colors.gray)
+      writeAt(3, rowY, TYPE_PICKER_LABELS[t] .. "  (current)", colors.lightGray, colors.gray)
+    else
+      local label = TYPE_PICKER_LABELS[t]
+      addButton(2, rowY, W-1, rowY, label, colors.black, TYPE_PICKER_COLORS[t], function()
+        confirm({"Switch "..(m.player or tostring(id)).." to "..label.."?",
+                 "The meter applies the change immediately."}, function()
+          sendCommand(id, "settype", t)
+          addAlert("Type -> "..label..": "..(m.player or tostring(id)))
+          if t == "balanced" then
+            m.balanced, m.isProducer = true, false
+          else
+            m.balanced, m.isProducer = false, (t == "producer")
+          end
+        end, "customer")
+      end)
+    end
+    rowY = rowY + 2
+  end
+
+  hline(H-1)
+  drawUpdateBanner()
+  addButton(1, H, W, H, "< BACK",
+    colors.black, colors.gray, function() currentScreen="customer" end)
 
   drawButtons()
 end
@@ -918,6 +958,7 @@ local function mainLoop()
     elseif currentScreen == "confirm"   then drawConfirmScreen()
     elseif currentScreen == "dashboard" then drawDashboard()
     elseif currentScreen == "customer"  then drawCustomerScreen()
+    elseif currentScreen == "typepicker" then drawTypePickerScreen()
     elseif currentScreen == "numinput" then drawNumericInputScreen()
     elseif currentScreen == "alerts"    then drawAlertsScreen()
     end
