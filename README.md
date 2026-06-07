@@ -169,8 +169,7 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 ### Dashboard
 - Live generation, total draw, and surplus for the whole network
 - **Company balance** — running total of all LC collected from consumers/buyers minus all LC paid out to producers/sellers (i.e. the operator's net profit, normally the 25% margin between the buy and sell rates)
-- Per-meter table: name, plan, balance, draw/export rate, cap, live status (`BUY`/`SELL`/`IDLE`/`SUSPENDED`/`ISOLATED` — see [Status Vocabulary](#status-vocabulary-admin-panel--pocket-monitor)), and a type tag `[P]`/`[C]`/`[B]`
-- Balanced meters (`[B]`) show their buffer % in place of a fixed plan/type
+- Per-meter table: name, connection type (`Consumer`/`Producer`/`Balanced`), balance, draw/export rate, cap, live status (`BUY`/`SELL`/`IDLE`/`SUSPENDED`/`ISOLATED` — see [Status Vocabulary](#status-vocabulary-admin-panel--pocket-monitor)), a type tag `[P]`/`[C]`/`[B]`, and a buffer % column (Balanced meters only — others show `-`)
 - Click any row to open the customer detail screen
 
 ### Customer Detail Screen
@@ -266,6 +265,6 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 | File | Current Version |
 |---|---|
 | meter.lua | 3.16 |
-| admin.lua | 3.10 |
+| admin.lua | 3.11 |
 | pocket.lua | 2.19 |
 | setup.lua | — |

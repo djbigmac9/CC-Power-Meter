@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v3.10
+--  BeyondSMP Admin Panel v3.11
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.10"
+local VERSION      = "3.11"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -470,14 +470,15 @@ local function drawDashboard()
   local x5 = x4 + cD + 1
   local x6 = x5 + cC + 1
 
-  -- Headers match string.format("%-13s %-8s %8s LC %7s/t %7s  %-9s %s") at x1
-  -- Col positions relative to x1: 0, 14, 23, 35, 45, 54
+  -- Headers match string.format("%-13s %-8s %8s LC %7s/t %7s  %-9s %s  %5s") at x1
+  -- Col positions relative to x1: 0, 14, 23, 35, 45, 54, 64, 69
   writeAt(x1,    7, "CUSTOMER",  colors.yellow)
-  writeAt(x1+14, 7, "PLAN",      colors.yellow)
+  writeAt(x1+14, 7, "TYPE",      colors.yellow)
   writeAt(x1+23, 7, "BALANCE",   colors.yellow)
   writeAt(x1+35, 7, "DRAW",      colors.yellow)
   writeAt(x1+45, 7, "CAP",       colors.yellow)
   writeAt(x1+54, 7, "STATUS",    colors.yellow)
+  writeAt(x1+69, 7, "BUFFER",    colors.yellow)
   hline(8)
 
   -- Sort: online first, then alphabetical
@@ -505,19 +506,15 @@ local function drawDashboard()
     local stLabel = meterStatus(m)
     local typeTag  = m.balanced and "[B]" or (m.isProducer and "[P]" or "[C]")
     local rateDisp = m.isProducer and (m.export or 0) or (m.draw or 0)
-    local planDisp
-    if m.balanced then
-      planDisp = string.format("%.0f%% buf", m.bufferPct or 0)
-    else
-      planDisp = (m.plan or "?"):sub(1,8)
-    end
-    local line = string.format("%-13s %-8s %8s LC %7s/t %7s  %-9s %s",
+    local typeDisp = m.balanced and "Balanced" or (m.isProducer and "Producer" or "Consumer")
+    local bufDisp  = m.balanced and string.format("%.0f%%", m.bufferPct or 0) or "-"
+    local line = string.format("%-13s %-8s %8s LC %7s/t %7s  %-9s %s  %5s",
       (m.player or "?"):sub(1,13),
-      planDisp,
+      typeDisp,
       formatCurrency(bal),
       formatFE(rateDisp),
       (m.cap or 0) >= 2147483647 and "Unlim" or formatFE(m.cap or 0),
-      stLabel, typeTag)
+      stLabel, typeTag, bufDisp)
     table.insert(rowRenders, {x=x1, y=rowY, text=line})
     local cid = id
     addButton(1, rowY, W, rowY, "", colors.white, colors.black, function()
