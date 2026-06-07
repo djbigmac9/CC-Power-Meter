@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.5
+--  BeyondSMP Electric Meter v3.11
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.8"
+local VERSION      = "3.11"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -159,7 +159,8 @@ local data = {
   registered    = false,
   isProducer    = false,
   ratePerFE     = RATE_PER_FE,
-  cap           = MAX_FLOW,
+  cap           = MAX_FLOW,   -- admin-set import cap (consumer mode)
+  exportCap     = MAX_FLOW,   -- self-set export cap (producer mode)
 }
 
 local function saveData()
@@ -179,6 +180,7 @@ local function loadData()
       data.totalExported    = data.totalExported  or 0
       data.isProducer       = data.isProducer     or false
       data.cap              = data.cap            or MAX_FLOW
+      data.exportCap        = data.exportCap      or MAX_FLOW
     end
   end
 end
@@ -187,7 +189,7 @@ end
 local function setPower(state)
   data.powerOn = state
   if data.isProducer then
-    if exportDetector then exportDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
+    if exportDetector then exportDetector.setTransferRateLimit(state and (data.exportCap or MAX_FLOW) or 0) end
     if importDetector then importDetector.setTransferRateLimit(0) end  -- always blocked
   else
     if importDetector then importDetector.setTransferRateLimit(state and (data.cap or MAX_FLOW) or 0) end
@@ -213,7 +215,7 @@ local function broadcastStatus(importRate, exportRate)
     draw          = importRate,
     export        = exportRate,
     isProducer    = data.isProducer,
-    cap           = importDetector and importDetector.getTransferRateLimit and importDetector.getTransferRateLimit() or 0,
+    cap           = data.isProducer and (data.exportCap or MAX_FLOW) or (data.cap or MAX_FLOW),
     powerOn       = data.powerOn,
     total         = data.totalConsumed,
     totalExported = data.totalExported,
@@ -318,14 +320,14 @@ local function hline(y, char, fg, bg)
 end
 
 local function formatFE(n)
-  if n >= 1e9 then return string.format("%.2f GFE", n/1e9)
-  elseif n >= 1e6 then return string.format("%.2f MFE", n/1e6)
-  elseif n >= 1e3 then return string.format("%.2f kFE", n/1e3)
-  else return string.format("%d FE", n) end
+  if n >= 1e9 then return string.format("%.2fG", n/1e9)
+  elseif n >= 1e6 then return string.format("%.2fM", n/1e6)
+  elseif n >= 1e3 then return string.format("%.2fk", n/1e3)
+  else return string.format("%d", n) end
 end
 
 local function formatCurrency(n)
-  return string.format("%.4f LC", n)
+  return string.format("%.4f", n)
 end
 
 -- ── Button system ────────────────────────────────────────────
@@ -445,6 +447,15 @@ end
 -- ── Plan / type change screens ────────────────────────────────
 local planChangeActive = false
 local typeChangeActive = false
+local capChangeActive  = false
+
+local CAP_PRESETS = {
+  { label = "Unlimited",   value = MAX_FLOW },
+  { label = "1,000 FE/t",  value = 1000 },
+  { label = "5,000 FE/t",  value = 5000 },
+  { label = "10,000 FE/t", value = 10000 },
+  { label = "50,000 FE/t", value = 50000 },
+}
 
 local function drawPlanChangeScreen()
   cls(); clearButtons()
@@ -460,8 +471,8 @@ local function drawPlanChangeScreen()
   if data.billingModel == "periodic" and data.periodUsage > 0 then
     local charge = data.periodUsage * data.ratePerFE
     centreText(10, "Outstanding period usage will be", colors.orange)
-    centreText(11, "charged now: " .. formatCurrency(charge), colors.orange)
-    centreText(12, "New balance: " .. formatCurrency(data.balance - charge), colors.white)
+    centreText(11, "charged now: " .. formatCurrency(charge) .. " LC", colors.orange)
+    centreText(12, "New balance: " .. formatCurrency(data.balance - charge) .. " LC", colors.white)
     hline(14)
   else
     centreText(11, "No outstanding charges.", colors.lightGray)
@@ -507,8 +518,8 @@ local function drawTypeChangeScreen()
     if data.billingModel == "periodic" and data.periodUsage > 0 then
       local charge = data.periodUsage * data.ratePerFE
       centreText(12, "Outstanding period usage will be", colors.orange)
-      centreText(13, "charged now: " .. formatCurrency(charge), colors.orange)
-      centreText(14, "New balance: " .. formatCurrency(data.balance - charge), colors.white)
+      centreText(13, "charged now: " .. formatCurrency(charge) .. " LC", colors.orange)
+      centreText(14, "New balance: " .. formatCurrency(data.balance - charge) .. " LC", colors.white)
     else
       centreText(12, "Switch takes effect immediately.", colors.lightGray)
     end
@@ -535,6 +546,45 @@ local function drawTypeChangeScreen()
   addButton(mid+1, 17, mid+1+btnW, 17, "CANCEL", colors.white, colors.red, function()
     typeChangeActive = false
   end)
+  hline(H-1)
+  centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
+  drawButtons()
+end
+
+local function drawCapChangeScreen()
+  cls(); clearButtons()
+  centreText(2, "BEYOND ENERGY",       colors.yellow)
+  centreText(3, "Set Export Rate Cap", colors.lightGray)
+  hline(4)
+  local cur      = data.exportCap or MAX_FLOW
+  local curLabel = cur >= MAX_FLOW and "Unlimited" or formatFE(cur) .. " FE/t"
+  centreText(6, "Current cap: " .. curLabel, colors.white)
+  centreText(7, "Choose a new export rate cap:", colors.lightGray)
+  hline(8)
+  local y = 9
+  for _, preset in ipairs(CAP_PRESETS) do
+    local selected = preset.value == cur
+    local label    = preset.label .. (selected and "  (current)" or "")
+    local fg       = selected and colors.gray or colors.black
+    local bg       = selected and colors.lightGray or colors.cyan
+    addButton(2, y, W-1, y, label, fg, bg, function()
+      if not selected then
+        data.exportCap = preset.value
+        if data.powerOn and exportDetector then
+          exportDetector.setTransferRateLimit(data.exportCap)
+        end
+        saveData()
+      end
+      capChangeActive = false
+    end)
+    centreText(y, label, fg, bg)
+    y = y + 1
+  end
+  hline(y)
+  addButton(2, y+1, W-1, y+1, "CANCEL", colors.white, colors.red, function()
+    capChangeActive = false
+  end)
+  centreText(y+1, "CANCEL", colors.white, colors.red)
   hline(H-1)
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
@@ -584,18 +634,34 @@ local function drawMeterScreen(importRate, exportRate)
   infoRow(9, "Type", data.isProducer and "Producer" or "Consumer",
           data.isProducer and colors.lime or colors.cyan)
 
-  local nextRow = 11
+  local nextRow = 12
   if data.isProducer then
     infoRow(10, "Total exported", formatFE(data.totalExported) .. " FE", colors.lime)
+    local ecap = data.exportCap or MAX_FLOW
+    infoRow(11, "Export cap", ecap >= MAX_FLOW and "Unlimited" or formatFE(ecap) .. " FE/t", colors.gray)
   elseif data.billingModel == "periodic" then
     infoRow(10, "Period cost", formatCurrency(data.periodUsage * data.ratePerFE) .. " LC", colors.orange)
     local secsLeft = math.max(0, math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL))
     local mins = math.floor(secsLeft / 60)
     local secs = secsLeft % 60
     infoRow(11, "Next bill", string.format("%dm %02ds", mins, secs), colors.cyan)
-    nextRow = 12
   else
+    -- PAYG consumer
     infoRow(10, "Total consumed", formatFE(data.totalConsumed) .. " FE", colors.white)
+    local costPerSec = importRate * data.ratePerFE
+    if data.balance > 0 and costPerSec > 0 then
+      local secs = math.floor(data.balance / costPerSec)
+      local h = math.floor(secs / 3600)
+      local m = math.floor((secs % 3600) / 60)
+      local s = secs % 60
+      local timeStr = h > 0 and string.format("%dh %02dm", h, m)
+                   or m > 0 and string.format("%dm %02ds", m, s)
+                   or string.format("%ds", s)
+      local col = secs < 300 and colors.red or (secs < 1800 and colors.yellow or colors.lime)
+      infoRow(11, "Est. time left", timeStr, col)
+    elseif data.balance > 0 then
+      infoRow(11, "Est. time left", "No draw", colors.gray)
+    end
   end
 
   hline(nextRow, "\140")
@@ -654,6 +720,14 @@ local function drawMeterScreen(importRate, exportRate)
       immediateRedraw = true
     end)
     centreText(H-3, label, colors.black, colors.lime)
+  elseif data.isProducer then
+    -- Self-managed export rate cap, to avoid overloading own generation setup
+    hline(H-4, "\140")
+    local label = " SET EXPORT CAP "
+    addButton(2, H-3, W-1, H-3, label, colors.black, colors.cyan, function()
+      capChangeActive = true
+    end)
+    centreText(H-3, label, colors.black, colors.cyan)
   else
     hline(H-3, "\140")
   end
@@ -775,10 +849,12 @@ local function mainLoop()
     if e == "monitor_touch" then
       local wasType = typeChangeActive
       local wasPlan = planChangeActive
+      local wasCap  = capChangeActive
       checkClick(ev[3], ev[4])
-      if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan then
+      if immediateRedraw or typeChangeActive ~= wasType or planChangeActive ~= wasPlan or capChangeActive ~= wasCap then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
+        elseif capChangeActive then drawCapChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
         immediateRedraw = false
       end
@@ -788,6 +864,7 @@ local function mainLoop()
       if immediateRedraw then
         if typeChangeActive then drawTypeChangeScreen()
         elseif planChangeActive then drawPlanChangeScreen()
+        elseif capChangeActive then drawCapChangeScreen()
         else drawMeterScreen(importRate, exportRate) end
         immediateRedraw = false
       end
@@ -821,6 +898,7 @@ local function mainLoop()
       timer = os.startTimer(POLL_INTERVAL)
       if typeChangeActive then drawTypeChangeScreen()
       elseif planChangeActive then drawPlanChangeScreen()
+      elseif capChangeActive then drawCapChangeScreen()
       else drawMeterScreen(importRate, exportRate) end
     end
   end
@@ -844,7 +922,7 @@ if importDetector then
 end
 if exportDetector then
   exportDetector.setTransferRateLimit(
-    data.isProducer and (data.powerOn and MAX_FLOW or 0) or 0)
+    data.isProducer and (data.powerOn and (data.exportCap or MAX_FLOW) or 0) or 0)
 end
 
 if not data.registered then runRegistration() end

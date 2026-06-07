@@ -103,6 +103,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 - Earns **75%** of the standard rate per FE exported
 - Balance accumulates — producer can switch to consumer at any time
 - Outstanding periodic usage is settled before switching type
+- Producers can set their own export rate cap (`SET EXPORT CAP` button — choose Unlimited or a preset FE/t limit) to avoid overloading their own generation setup — this cap is independent of the admin-set consumer rate cap, and each is restored automatically when switching type back
 
 ### On-Screen Information
 - Customer name, billing plan, connection type
@@ -120,12 +121,15 @@ On first boot the meter walks a new customer through a 3-step setup:
 | `[TEMP] +200 LC` | Add 200 LC temporary credit |
 | `CHANGE PLAN` | Switch between PAYG and Periodic (charges any outstanding usage first) |
 | `CHANGE TYPE` | Switch between Consumer and Producer (charges any outstanding usage first) |
+| `SET EXPORT CAP` | Producers only — choose an export rate cap (Unlimited or a preset FE/t limit) |
 | `CUT POWER / RESTORE` | Toggle power manually |
 | `PAY NOW (X.XXXX LC)` | Periodic only — pay current period immediately |
 
 ---
 
 ## Admin Panel Features
+
+All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypad — no physical keyboard required, consistent with the monitor's touch-driven interface.
 
 ### Dashboard
 - Live generation, total draw, and surplus for the whole network
@@ -137,7 +141,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 |---|---|
 | `CUT POWER / RESTORE` | Cut or restore this meter's power |
 | `+500 LC` | Add 500 LC to balance |
-| `TOGGLE CAP` | Switch rate cap between Unlimited and 10,000 FE/t |
+| `SET CAP` | Enter a new admin-controlled rate cap on the on-screen keypad (or tap UNLIMITED) |
 | `RENAME` | Change the player name on this meter |
 | `CHG PLAN` | Toggle billing plan (PAYG ↔ Periodic) |
 | `UPDATE` | Push a remote update to this meter |
@@ -151,7 +155,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 |---|---|
 | `DASHBOARD` | Return to meter list |
 | `ALERTS` | View event log (power cuts, low balances, etc.) |
-| `SET RATE` | Broadcast a new LC/FE rate to all meters |
+| `SET RATE` | Enter a new global LC/FE rate on the on-screen keypad and broadcast it to all meters |
 | `UPD METERS` | Send remote update command to all meters |
 | `CUT ALL / RESTORE ALL` | Cut or restore every meter at once |
 
@@ -163,7 +167,7 @@ Runs on an Advanced Pocket Computer with an Ender Modem.
 
 - **List screen** — all meters with online status and power state
 - **Detail screen** — balance, draw/export, plan, type, period cost, countdown
-- Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, TOGGLE CAP, UPDATE METER, RENAME, CHG PLAN, toggle type
+- Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, SET CAP (keyboard entry), UPDATE METER, RENAME, CHG PLAN, toggle type
 - Global: CUT ALL, RESTORE ALL, UPD ALL
 - Alert log with count indicator
 - Update available banner
@@ -213,7 +217,7 @@ Meters accept these commands from the admin or pocket computer:
 | `setplan` | `"payg"` or `"periodic"` | Change billing plan |
 | `settype` | `"producer"` or `"consumer"` | Change connection type |
 | `setname` | string | Rename the meter |
-| `setcap` | number | Set FE/t rate cap |
+| `setcap` | number | Set the admin-controlled import (consumer-side) FE/t rate cap — producers manage their own export cap locally |
 | `update` | — | Download latest version and reboot |
 
 Commands can target a specific meter by `id` (computer ID) or use `"all"` to broadcast.
@@ -224,7 +228,7 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 
 | File | Current Version |
 |---|---|
-| meter.lua | 3.8 |
-| admin.lua | 3.4 |
-| pocket.lua | 2.12 |
+| meter.lua | 3.11 |
+| admin.lua | 3.5 |
+| pocket.lua | 2.13 |
 | setup.lua | — |
