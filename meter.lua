@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.14
+--  BeyondSMP Electric Meter v3.15
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -13,7 +13,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.14"
+local VERSION      = "3.15"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -114,7 +114,28 @@ local BUFFER_IDLE_PCT = 60   -- charge %  — release point; trade stops here
 local importDetector = nil   -- left:  grid → player
 local exportDetector = nil   -- right: player → grid
 local monitor = peripheral.find("monitor")
-local modem   = peripheral.find("modem")
+
+-- Modems come in two flavours that serve two completely different jobs:
+--   • Wireless (Ender) modem — talks to the admin/pocket over the broadcast
+--     channels; this is the only kind with the range to "speak back" to admin
+--   • Wired modem            — bridges the meter onto a local Mekanism cable
+--     network, which is how Energy Cube(s) become visible to peripheral.find
+-- A meter can have one, both, or neither — detect them separately so we can
+-- give an accurate diagnosis and gate Balanced mode correctly.
+local modem          = nil   -- wireless modem used for admin/pocket comms
+local hasWiredModem  = false
+for _, name in ipairs(peripheral.getNames()) do
+  if peripheral.getType(name) == "modem" then
+    local ok, p = pcall(peripheral.wrap, name)
+    if ok and p then
+      if p.isWireless and p.isWireless() then
+        modem = modem or p
+      else
+        hasWiredModem = true
+      end
+    end
+  end
+end
 
 if peripheral.isPresent("left") and peripheral.getType("left") == "energy_detector" then
   importDetector = peripheral.wrap("left")
@@ -124,8 +145,10 @@ if peripheral.isPresent("right") and peripheral.getType("right") == "energy_dete
 end
 
 -- Mekanism Energy Cube(s) — buffer for Balanced (Auto P2P) mode.
--- Auto-detected anywhere on the network by name, e.g. "basicEnergyCube_1",
--- "advancedEnergyCube_2", "ultimateEnergyCube_1" ...
+-- Auto-detected anywhere on the (wired) network by name, e.g.
+-- "basicEnergyCube_1", "advancedEnergyCube_2", "ultimateEnergyCube_1" ...
+-- Only reachable through a wired modem connection — no wired modem means
+-- no cubes will ever show up here, and Balanced mode stays unavailable.
 local cubes = {}
 for _, name in ipairs(peripheral.getNames()) do
   if name:match("[Ee]nergy[Cc]ube_%d+") then
@@ -133,6 +156,10 @@ for _, name in ipairs(peripheral.getNames()) do
     if ok and p then table.insert(cubes, p) end
   end
 end
+
+-- Whether this meter is physically able to run in Balanced mode — needs an
+-- actual buffer to balance against, which in turn needs a wired-modem link
+local canBalance = (#cubes > 0)
 
 -- ── Boot error screen ────────────────────────────────────────
 local function bootError(msg)
@@ -151,14 +178,18 @@ if not importDetector and not exportDetector then
   bootError("No Energy Detector found.\nLeft = grid import, Right = grid export.")
 end
 if not monitor then bootError("No monitor found.\nAttach a CC Advanced Monitor to any side.") end
-if not modem   then bootError("No modem found.\nAttach an Ender Modem to any side.") end
+if not modem   then
+  bootError("No wireless (Ender) Modem found.\nAttach an Ender Modem to any side -\nrequired to communicate with the admin panel.")
+end
 
 modem.open(COMMAND_CH)
 
 print("Import Detector : " .. (importDetector and "left"  or "not found"))
 print("Export Detector : " .. (exportDetector and "right" or "not found"))
-print("Energy Cube(s)  : " .. (#cubes > 0 and (#cubes .. " found") or "not found (Balanced mode unavailable)"))
-print("Modem           : found")
+print("Wireless Modem  : found (admin link OK)")
+print("Wired Modem     : " .. (hasWiredModem and "found" or "not found"))
+print("Energy Cube(s)  : " .. (#cubes > 0 and (#cubes .. " found")
+                               or "not found (Balanced mode unavailable)"))
 print("Monitor         : found")
 print("Listening on ch : " .. COMMAND_CH)
 print("Broadcasting on : " .. STATUS_CH)
@@ -342,6 +373,11 @@ end
 -- every possible transition (this is the single source of truth used by
 -- both the on-meter CHANGE TYPE screen and the remote `settype` command).
 local function applyConnectionType(newType)
+  -- Refuse to become Balanced if there's no buffer to balance against (no
+  -- Energy Cube(s) detected — usually means no wired-modem network link).
+  -- Guards both the on-meter picker and the remote `settype` command.
+  if newType == "balanced" and not canBalance then return end
+
   -- Settle outstanding periodic usage before leaving (non-balanced) consumer mode
   if not data.isProducer and not data.balanced
       and data.billingModel == "periodic" and data.periodUsage > 0
@@ -403,6 +439,7 @@ local function broadcastStatus(importRate, exportRate)
     balanced      = data.balanced,
     pState        = data.balanced and data.pState or nil,
     bufferPct     = data.balanced and data.bufferPct or nil,
+    canBalance    = canBalance,   -- whether this meter has a buffer to run Balanced mode
   })
 end
 
@@ -613,11 +650,16 @@ local function drawRegisterType(name)
   writeAt(c2, 11, "Sells surplus to",  colors.lightGray)
   writeAt(c2, 12, "the grid. Needs",   colors.lightGray)
   writeAt(c2, 13, "RIGHT detector.",   colors.lightGray)
-  writeAt(c3, 10, "BALANCED",          colors.yellow)
+  writeAt(c3, 10, "BALANCED",          canBalance and colors.yellow or colors.gray)
   writeAt(c3, 11, "Auto buy/sell vs.", colors.lightGray)
   writeAt(c3, 12, "an energy cube",    colors.lightGray)
   writeAt(c3, 13, "buffer. Needs both",colors.lightGray)
-  writeAt(c3, 14, "detectors + cube.", colors.lightGray)
+  if canBalance then
+    writeAt(c3, 14, "detectors + cube.", colors.lightGray)
+  else
+    writeAt(c3, 14, "No cube detected -",  colors.red)
+    writeAt(c3, 15, "unavailable.",        colors.red)
+  end
   hline(16)
   addButton(c1, 17, c1+cw-1, 17, "CONSUMER", colors.black, colors.cyan, function()
     data.isProducer = false
@@ -633,18 +675,23 @@ local function drawRegisterType(name)
     setPower(true)
     saveData()
   end)
-  addButton(c3, 17, c3+cw-1, 17, "BALANCED", colors.black, colors.yellow, function()
-    data.balanced     = true
-    data.isProducer   = false
-    data.pState       = "idle"
-    data.billingModel = "payg"   -- dynamic buy/sell doesn't fit periodic billing
-    data.playerName   = name
-    data.registered   = true
-    data.powerOn      = true
-    sampleBuffer()
-    applyBalancedDetectors()
-    saveData()
-  end)
+  if canBalance then
+    addButton(c3, 17, c3+cw-1, 17, "BALANCED", colors.black, colors.yellow, function()
+      data.balanced     = true
+      data.isProducer   = false
+      data.pState       = "idle"
+      data.billingModel = "payg"   -- dynamic buy/sell doesn't fit periodic billing
+      data.playerName   = name
+      data.registered   = true
+      data.powerOn      = true
+      sampleBuffer()
+      applyBalancedDetectors()
+      saveData()
+    end)
+  else
+    writeAt(c3, 17, string.rep(" ", cw), colors.gray, colors.gray)
+    writeAt(c3 + math.floor((cw - 12) / 2), 17, "UNAVAILABLE", colors.lightGray, colors.gray)
+  end
   hline(H-1)
   centreText(H, "Beyond Energy Co. | BeyondSMP v"..VERSION, colors.gray)
   drawButtons()
@@ -727,6 +774,9 @@ local function drawTypeChangeScreen()
       if t == curType then
         writeAt(2, rowY, string.rep(" ", W-2), colors.lightGray, colors.gray)
         writeAt(3, rowY, TYPE_LABELS[t] .. "  (current)", colors.lightGray, colors.gray)
+      elseif t == "balanced" and not canBalance then
+        writeAt(2, rowY, string.rep(" ", W-2), colors.gray, colors.black)
+        writeAt(3, rowY, TYPE_LABELS[t] .. "  (no Energy Cube detected)", colors.gray, colors.black)
       else
         addButton(2, rowY, W-1, rowY, TYPE_LABELS[t], colors.black, TYPE_COLORS[t], function()
           typeChangeTarget = t

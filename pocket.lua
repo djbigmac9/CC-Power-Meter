@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.17"
+local VERSION      = "2.18"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -679,6 +679,9 @@ local function drawTypePicker()
     if t == curType then
       at(1, rowY, string.rep(" ", W), colors.lightGray, colors.gray)
       at(2, rowY, TYPE_PICKER_LABELS[t] .. "  (current)", colors.lightGray, colors.gray)
+    elseif t == "balanced" and m.canBalance == false then
+      at(1, rowY, string.rep(" ", W), colors.gray, colors.black)
+      at(2, rowY, TYPE_PICKER_LABELS[t] .. " (no cube)", colors.gray, colors.black)
     else
       local label = TYPE_PICKER_LABELS[t]
       btn(1, rowY, W, label, colors.black, TYPE_PICKER_COLORS[t], function()

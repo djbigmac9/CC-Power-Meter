@@ -38,15 +38,18 @@ The setup script will:
 | Peripheral | Side | Required |
 |---|---|---|
 | Advanced Monitor | Any | Yes |
-| Ender Modem | Any | Yes |
+| Ender Modem (wireless) | Any | Yes |
 | Energy Detector (import) | **Left** | One of these two |
 | Energy Detector (export) | **Right** | is required |
-| Mekanism Energy Cube(s) | Any / wired network | Required for **Balanced** mode only |
+| Wired Modem + Mekanism Energy Cube(s) | Any / wired network | Required for **Balanced** mode only |
 
 - **Left** detector measures power drawn **from** the grid (consumers)
 - **Right** detector measures power exported **to** the grid (producers)
 - Both detectors can be installed for meters that may switch type, and are **required** for Balanced mode (it both buys and sells)
-- Energy Cubes are auto-detected anywhere on the network by name (e.g. `basicEnergyCube_1`, `ultimateEnergyCube_1`) — one or many can be wired together as a shared buffer
+- The meter needs **two different kinds of modem for two different jobs**:
+  - A **wireless (Ender) Modem** is what lets it "speak back" to the admin panel and pocket computer over the broadcast/command channels — without one, the meter boots into an error screen, since it has no way to report status or receive commands
+  - A **Wired Modem** bridges it onto a local Mekanism cable network — this is the *only* way Energy Cube(s) become visible to the meter, so **no wired modem means no cubes, which means Balanced mode is unavailable** (the meter can still be a Consumer or Producer)
+- Energy Cubes are auto-detected over the wired network by name (e.g. `basicEnergyCube_1`, `ultimateEnergyCube_1`) — one or many can be wired together as a shared buffer. This also covers the case of a customer who'd rather feed their own private power plant directly (Producer-only) than join a shared buffer
 
 ### Admin Panel
 | Peripheral | Required |
@@ -109,7 +112,8 @@ On first boot the meter walks a new customer through a 3-step setup:
 
 ### Balanced Mode (Auto P2P)
 - A third connection type, selectable at registration **or** any time afterwards via `CHANGE TYPE` (on the meter, admin panel, or pocket computer) — switching to/from Balanced takes effect immediately and settles any outstanding periodic usage first
-- Requires one or more **Mekanism Energy Cubes** on the network — auto-detected by name (e.g. `basicEnergyCube_1`) and combined into a single shared buffer
+- Requires one or more **Mekanism Energy Cubes** reachable over a **Wired Modem** network — auto-detected by name (e.g. `basicEnergyCube_1`) and combined into a single shared buffer
+- **Gated by hardware**: a meter only offers Balanced as an option (at registration, in `CHANGE TYPE` on the meter itself, and in the remote pickers on the admin panel/pocket computer) if it actually detects at least one Energy Cube — no wired modem or no cubes means the option is shown disabled/unavailable, and the meter quietly refuses any `settype "balanced"` command. Customers without a buffer simply pick Consumer or Producer (e.g. someone feeding their own private power plant straight into the grid as a Producer)
 - Automatically switches between **buying**, **selling**, and **idle** based on the buffer's combined charge percentage, using hardcoded thresholds:
   - Buffer ≥ **80%** → start **selling** surplus to the grid (earns at the producer rate, subject to `SET EXPORT CAP`)
   - Buffer ≤ **25%** → start **buying** to top up the buffer (charged at the standard rate, subject to the admin `SET CAP`)
@@ -245,7 +249,7 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 
 | File | Current Version |
 |---|---|
-| meter.lua | 3.14 |
-| admin.lua | 3.8 |
-| pocket.lua | 2.17 |
+| meter.lua | 3.15 |
+| admin.lua | 3.9 |
+| pocket.lua | 2.18 |
 | setup.lua | — |

@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v3.8
+--  BeyondSMP Admin Panel v3.9
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.8"
+local VERSION      = "3.9"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -820,6 +820,9 @@ local function drawTypePickerScreen()
     if t == curType then
       writeAt(2, rowY, string.rep(" ", W-2), colors.lightGray, colors.gray)
       writeAt(3, rowY, TYPE_PICKER_LABELS[t] .. "  (current)", colors.lightGray, colors.gray)
+    elseif t == "balanced" and m.canBalance == false then
+      writeAt(2, rowY, string.rep(" ", W-2), colors.gray, colors.black)
+      writeAt(3, rowY, TYPE_PICKER_LABELS[t] .. "  (no Energy Cube on meter)", colors.gray, colors.black)
     else
       local label = TYPE_PICKER_LABELS[t]
       addButton(2, rowY, W-1, rowY, label, colors.black, TYPE_PICKER_COLORS[t], function()
