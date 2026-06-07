@@ -148,6 +148,7 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 
 ### Dashboard
 - Live generation, total draw, and surplus for the whole network
+- **Company balance** — running total of all LC collected from consumers/buyers minus all LC paid out to producers/sellers (i.e. the operator's net profit, normally the 25% margin between the buy and sell rates)
 - Per-meter table: name, plan, balance, draw/export rate, cap, power status, type tag `[P]`/`[C]`/`[B]`
 - Balanced meters (`[B]`) show their live status — Buying / Selling / Idle / Suspended — and buffer % in place of a fixed plan/type
 - Click any row to open the customer detail screen
@@ -181,7 +182,7 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 
 Runs on an Advanced Pocket Computer with an Ender Modem.
 
-- **List screen** — all meters with online status and power state
+- **List screen** — company balance (operator's net profit), all meters with online status and power state
 - **Detail screen** — balance, draw/export, plan, type, period cost, countdown
 - Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, SET CAP (keyboard entry), UPDATE METER, RENAME, CHG PLAN, toggle type
 - Global: CUT ALL, RESTORE ALL, UPD ALL
@@ -244,7 +245,7 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 
 | File | Current Version |
 |---|---|
-| meter.lua | 3.12 |
-| admin.lua | 3.6 |
-| pocket.lua | 2.14 |
+| meter.lua | 3.13 |
+| admin.lua | 3.7 |
+| pocket.lua | 2.15 |
 | setup.lua | — |

@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.14"
+local VERSION      = "2.15"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -321,14 +321,23 @@ local function drawList()
     end})
   end
 
-  hline(2)
+  -- Company balance — total revenue collected from consumers/buyers minus
+  -- total payouts to producers/sellers (the operator's running profit)
+  local companyBalance = 0
+  for _, m in pairs(meters) do
+    companyBalance = companyBalance + (m.totalRevenue or 0) - (m.totalPayout or 0)
+  end
+  at(1, 2, "Company: " .. fmtLC(companyBalance),
+    companyBalance >= 0 and colors.lime or colors.red)
+
+  hline(3)
 
   -- Customer rows — one per line, just name + status dot
   local list = sorted()
-  local rowY = 3
+  local rowY = 4
 
   if #list == 0 then
-    at(1, 3, "Waiting for meters...", colors.gray)
+    at(1, 4, "Waiting for meters...", colors.gray)
   else
     for _, e in ipairs(list) do
       if rowY > H - 2 then break end

@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v3.6
+--  BeyondSMP Admin Panel v3.7
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.6"
+local VERSION      = "3.7"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -420,7 +420,16 @@ local function drawDashboard()
   writeAt(half+1, 3, "Offline:   " .. offline,                             offline > 0 and colors.orange or colors.gray)
   writeAt(half+1, 4, "Low bal:   " .. lowBal,                              lowBal  > 0 and colors.orange or colors.gray)
 
-  hline(5)
+  -- Company balance — total revenue collected from consumers/buyers minus
+  -- total payouts to producers/sellers (i.e. the operator's running profit)
+  local companyBalance = 0
+  for _, m in pairs(meters) do
+    companyBalance = companyBalance + (m.totalRevenue or 0) - (m.totalPayout or 0)
+  end
+  local companyCol = companyBalance >= 0 and colors.lime or colors.red
+  writeAt(2, 5, "Company balance: " .. formatCurrency(companyBalance) .. " LC", companyCol)
+
+  hline(6)
 
   -- Column layout — percentages of W
   local cN = math.floor(W * 0.17)  -- name
@@ -439,13 +448,13 @@ local function drawDashboard()
 
   -- Headers match string.format("%-16s %-8s %8s LC %7s/t %7s  %s") at x1
   -- Col positions relative to x1: 0, 17, 26, 38, 47, 56
-  writeAt(x1,    6, "CUSTOMER",  colors.yellow)
-  writeAt(x1+17, 6, "PLAN",      colors.yellow)
-  writeAt(x1+26, 6, "BALANCE",   colors.yellow)
-  writeAt(x1+37, 6, "DRAW",      colors.yellow)
-  writeAt(x1+47, 6, "CAP",       colors.yellow)
-  writeAt(x1+56, 6, "STATUS",    colors.yellow)
-  hline(7)
+  writeAt(x1,    7, "CUSTOMER",  colors.yellow)
+  writeAt(x1+17, 7, "PLAN",      colors.yellow)
+  writeAt(x1+26, 7, "BALANCE",   colors.yellow)
+  writeAt(x1+37, 7, "DRAW",      colors.yellow)
+  writeAt(x1+47, 7, "CAP",       colors.yellow)
+  writeAt(x1+56, 7, "STATUS",    colors.yellow)
+  hline(8)
 
   -- Sort: online first, then alphabetical
   local sorted = {}
@@ -461,7 +470,7 @@ local function drawDashboard()
 
   -- Build row data for rendering AFTER drawButtons
   local rowRenders = {}
-  local rowY = 9
+  local rowY = 10
   local maxY = H - 4
 
   for _, entry in ipairs(sorted) do

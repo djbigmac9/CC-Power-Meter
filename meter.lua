@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.12
+--  BeyondSMP Electric Meter v3.13
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -13,7 +13,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.12"
+local VERSION      = "3.13"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -176,6 +176,8 @@ local data = {
   balance       = 0,
   totalConsumed = 0,
   totalExported = 0,
+  totalRevenue  = 0,   -- cumulative LC charged to this meter as a consumer/buyer (company income)
+  totalPayout   = 0,   -- cumulative LC paid out by this meter as a producer/seller (company expense)
   periodUsage   = 0,
   powerOn       = false,
   registered    = false,
@@ -207,6 +209,8 @@ local function loadData()
       data = loaded
       RATE_PER_FE           = data.ratePerFE     or RATE_PER_FE
       data.totalExported    = data.totalExported  or 0
+      data.totalRevenue     = data.totalRevenue    or 0
+      data.totalPayout      = data.totalPayout     or 0
       data.isProducer       = data.isProducer     or false
       data.cap              = data.cap            or MAX_FLOW
       data.exportCap        = data.exportCap      or MAX_FLOW
@@ -354,6 +358,8 @@ local function broadcastStatus(importRate, exportRate)
     powerOn       = data.powerOn,
     total         = data.totalConsumed,
     totalExported = data.totalExported,
+    totalRevenue  = data.totalRevenue,
+    totalPayout   = data.totalPayout,
     ratePerFE     = data.ratePerFE,
     billSecsLeft  = billSecsLeft,
     periodCost    = periodCost,
@@ -1045,8 +1051,10 @@ end
 -- ── Billing logic ────────────────────────────────────────────
 
 local function doPaygBilling(fe)
-  data.balance       = data.balance - (fe * data.ratePerFE)
+  local charge       = fe * data.ratePerFE
+  data.balance       = data.balance - charge
   data.totalConsumed = data.totalConsumed + fe
+  data.totalRevenue  = (data.totalRevenue or 0) + charge
   if data.balance <= 0 and data.powerOn then setPower(false) end
   saveData()
 end
@@ -1056,17 +1064,21 @@ local function doPeriodicBilling(fe)
   data.totalConsumed = data.totalConsumed + fe
   ticksSincePeriod   = ticksSincePeriod + 1
   if ticksSincePeriod >= PERIOD_TICKS then
-    data.balance     = data.balance - (data.periodUsage * data.ratePerFE)
-    data.periodUsage = 0
-    ticksSincePeriod = 0
+    local charge      = data.periodUsage * data.ratePerFE
+    data.balance      = data.balance - charge
+    data.totalRevenue = (data.totalRevenue or 0) + charge
+    data.periodUsage  = 0
+    ticksSincePeriod  = 0
     if data.balance <= 0 and data.powerOn then setPower(false) end
   end
   saveData()
 end
 
 local function doProducerBilling(fe)
-  data.balance       = data.balance + (fe * data.ratePerFE * 0.75)
+  local payout       = fe * data.ratePerFE * 0.75
+  data.balance       = data.balance + payout
   data.totalExported = (data.totalExported or 0) + fe
+  data.totalPayout   = (data.totalPayout or 0) + payout
   saveData()
 end
 
