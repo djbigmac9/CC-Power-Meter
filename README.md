@@ -103,6 +103,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 - Earns **75%** of the standard rate per FE exported
 - Balance accumulates — producer can switch to consumer at any time
 - Outstanding periodic usage is settled before switching type
+- Producers can self-limit their export rate (`LIMIT EXPORT RATE` / `REMOVE EXPORT LIMIT` button) to avoid overloading their own generation setup — this cap is independent of the admin-set consumer rate cap, and each is restored automatically when switching type back
 
 ### On-Screen Information
 - Customer name, billing plan, connection type
@@ -120,6 +121,7 @@ On first boot the meter walks a new customer through a 3-step setup:
 | `[TEMP] +200 LC` | Add 200 LC temporary credit |
 | `CHANGE PLAN` | Switch between PAYG and Periodic (charges any outstanding usage first) |
 | `CHANGE TYPE` | Switch between Consumer and Producer (charges any outstanding usage first) |
+| `LIMIT EXPORT RATE / REMOVE EXPORT LIMIT` | Producers only — self-cap export rate at 10,000 FE/t (or remove the limit) |
 | `CUT POWER / RESTORE` | Toggle power manually |
 | `PAY NOW (X.XXXX LC)` | Periodic only — pay current period immediately |
 
@@ -213,7 +215,7 @@ Meters accept these commands from the admin or pocket computer:
 | `setplan` | `"payg"` or `"periodic"` | Change billing plan |
 | `settype` | `"producer"` or `"consumer"` | Change connection type |
 | `setname` | string | Rename the meter |
-| `setcap` | number | Set FE/t rate cap |
+| `setcap` | number | Set the admin-controlled import (consumer-side) FE/t rate cap — producers manage their own export cap locally |
 | `update` | — | Download latest version and reboot |
 
 Commands can target a specific meter by `id` (computer ID) or use `"all"` to broadcast.
@@ -224,7 +226,7 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 
 | File | Current Version |
 |---|---|
-| meter.lua | 3.9 |
+| meter.lua | 3.10 |
 | admin.lua | 3.4 |
 | pocket.lua | 2.12 |
 | setup.lua | — |

@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.5
+--  BeyondSMP Electric Meter v3.10
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -11,7 +11,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.9"
+local VERSION      = "3.10"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -159,7 +159,8 @@ local data = {
   registered    = false,
   isProducer    = false,
   ratePerFE     = RATE_PER_FE,
-  cap           = MAX_FLOW,
+  cap           = MAX_FLOW,   -- admin-set import cap (consumer mode)
+  exportCap     = MAX_FLOW,   -- self-set export cap (producer mode)
 }
 
 local function saveData()
@@ -179,6 +180,7 @@ local function loadData()
       data.totalExported    = data.totalExported  or 0
       data.isProducer       = data.isProducer     or false
       data.cap              = data.cap            or MAX_FLOW
+      data.exportCap        = data.exportCap      or MAX_FLOW
     end
   end
 end
@@ -187,7 +189,7 @@ end
 local function setPower(state)
   data.powerOn = state
   if data.isProducer then
-    if exportDetector then exportDetector.setTransferRateLimit(state and MAX_FLOW or 0) end
+    if exportDetector then exportDetector.setTransferRateLimit(state and (data.exportCap or MAX_FLOW) or 0) end
     if importDetector then importDetector.setTransferRateLimit(0) end  -- always blocked
   else
     if importDetector then importDetector.setTransferRateLimit(state and (data.cap or MAX_FLOW) or 0) end
@@ -213,7 +215,7 @@ local function broadcastStatus(importRate, exportRate)
     draw          = importRate,
     export        = exportRate,
     isProducer    = data.isProducer,
-    cap           = importDetector and importDetector.getTransferRateLimit and importDetector.getTransferRateLimit() or 0,
+    cap           = data.isProducer and (data.exportCap or MAX_FLOW) or (data.cap or MAX_FLOW),
     powerOn       = data.powerOn,
     total         = data.totalConsumed,
     totalExported = data.totalExported,
@@ -587,7 +589,8 @@ local function drawMeterScreen(importRate, exportRate)
   local nextRow = 12
   if data.isProducer then
     infoRow(10, "Total exported", formatFE(data.totalExported) .. " FE", colors.lime)
-    nextRow = 11
+    local ecap = data.exportCap or MAX_FLOW
+    infoRow(11, "Export cap", ecap >= MAX_FLOW and "Unlimited" or formatFE(ecap) .. " FE/t", colors.gray)
   elseif data.billingModel == "periodic" then
     infoRow(10, "Period cost", formatCurrency(data.periodUsage * data.ratePerFE) .. " LC", colors.orange)
     local secsLeft = math.max(0, math.floor((PERIOD_TICKS - ticksSincePeriod) * POLL_INTERVAL))
@@ -669,6 +672,20 @@ local function drawMeterScreen(importRate, exportRate)
       immediateRedraw = true
     end)
     centreText(H-3, label, colors.black, colors.lime)
+  elseif data.isProducer then
+    -- Self-managed export rate cap, to avoid overloading own generation setup
+    hline(H-4, "\140")
+    local ecap  = data.exportCap or MAX_FLOW
+    local label = ecap >= MAX_FLOW and " LIMIT EXPORT RATE (10,000 FE/t) " or " REMOVE EXPORT LIMIT "
+    addButton(2, H-3, W-1, H-3, label, colors.black, colors.cyan, function()
+      data.exportCap = ecap >= MAX_FLOW and 10000 or MAX_FLOW
+      if data.powerOn and exportDetector then
+        exportDetector.setTransferRateLimit(data.exportCap)
+      end
+      saveData()
+      immediateRedraw = true
+    end)
+    centreText(H-3, label, colors.black, colors.cyan)
   else
     hline(H-3, "\140")
   end
@@ -859,7 +876,7 @@ if importDetector then
 end
 if exportDetector then
   exportDetector.setTransferRateLimit(
-    data.isProducer and (data.powerOn and MAX_FLOW or 0) or 0)
+    data.isProducer and (data.powerOn and (data.exportCap or MAX_FLOW) or 0) or 0)
 end
 
 if not data.registered then runRegistration() end
