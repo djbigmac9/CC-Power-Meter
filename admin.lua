@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Admin Panel v3.9
+--  BeyondSMP Admin Panel v3.10
 --  Peripherals (fully auto-detected):
 --    Energy Detector = any side (generation monitor)
 --    Monitor         = any size, auto-scales
@@ -8,7 +8,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.9"
+local VERSION      = "3.10"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/admin.lua"
 local UPDATE_EVERY = 300
 
@@ -149,6 +149,30 @@ end
 
 local function formatCurrency(n)
   return string.format("%.2f", n or 0)
+end
+
+-- Unified status vocabulary shown across the dashboard, customer detail
+-- screen, and pocket monitor: BUY / SELL / IDLE / SUSPENDED / ISOLATED.
+-- SUSPENDED = power cut and the customer owes money (balance <= 0, can't
+-- self-restore). ISOLATED = customer cut their own power but is in good
+-- standing (balance > 0) and can simply press RESTORE themselves.
+local function meterStatus(m)
+  if not m.powerOn then
+    if (m.balance or 0) <= 0 then
+      return "SUSPENDED", colors.red
+    else
+      return "ISOLATED", colors.gray
+    end
+  elseif m.balanced then
+    if     m.pState == "buying"  then return "BUY",  colors.cyan
+    elseif m.pState == "selling" then return "SELL", colors.lime
+    else                              return "IDLE", colors.lightGray
+    end
+  elseif m.isProducer then
+    return "SELL", colors.lime
+  else
+    return "BUY", colors.cyan
+  end
 end
 
 -- ── Button system ────────────────────────────────────────────
@@ -446,14 +470,14 @@ local function drawDashboard()
   local x5 = x4 + cD + 1
   local x6 = x5 + cC + 1
 
-  -- Headers match string.format("%-16s %-8s %8s LC %7s/t %7s  %s") at x1
-  -- Col positions relative to x1: 0, 17, 26, 38, 47, 56
+  -- Headers match string.format("%-13s %-8s %8s LC %7s/t %7s  %-9s %s") at x1
+  -- Col positions relative to x1: 0, 14, 23, 35, 45, 54
   writeAt(x1,    7, "CUSTOMER",  colors.yellow)
-  writeAt(x1+17, 7, "PLAN",      colors.yellow)
-  writeAt(x1+26, 7, "BALANCE",   colors.yellow)
-  writeAt(x1+37, 7, "DRAW",      colors.yellow)
-  writeAt(x1+47, 7, "CAP",       colors.yellow)
-  writeAt(x1+56, 7, "STATUS",    colors.yellow)
+  writeAt(x1+14, 7, "PLAN",      colors.yellow)
+  writeAt(x1+23, 7, "BALANCE",   colors.yellow)
+  writeAt(x1+35, 7, "DRAW",      colors.yellow)
+  writeAt(x1+45, 7, "CAP",       colors.yellow)
+  writeAt(x1+54, 7, "STATUS",    colors.yellow)
   hline(8)
 
   -- Sort: online first, then alphabetical
@@ -478,23 +502,22 @@ local function drawDashboard()
     local id  = entry.id
     local m   = entry.m
     local bal = m.balance or 0
-    local stTx    = m.powerOn and "ON" or "OFF"
+    local stLabel = meterStatus(m)
     local typeTag  = m.balanced and "[B]" or (m.isProducer and "[P]" or "[C]")
     local rateDisp = m.isProducer and (m.export or 0) or (m.draw or 0)
     local planDisp
     if m.balanced then
-      local labels = { buying = "Buying", selling = "Selling", idle = "Idle", suspended = "Suspended" }
-      planDisp = (labels[m.pState] or "Balanced"):sub(1,8)
+      planDisp = string.format("%.0f%% buf", m.bufferPct or 0)
     else
       planDisp = (m.plan or "?"):sub(1,8)
     end
-    local line = string.format("%-13s %-8s %8s LC %7s/t %7s  %s %s",
+    local line = string.format("%-13s %-8s %8s LC %7s/t %7s  %-9s %s",
       (m.player or "?"):sub(1,13),
       planDisp,
       formatCurrency(bal),
       formatFE(rateDisp),
       (m.cap or 0) >= 2147483647 and "Unlim" or formatFE(m.cap or 0),
-      stTx, typeTag)
+      stLabel, typeTag)
     table.insert(rowRenders, {x=x1, y=rowY, text=line})
     local cid = id
     addButton(1, rowY, W, rowY, "", colors.white, colors.black, function()
@@ -645,11 +668,7 @@ local function drawCustomerScreen()
 
   writeAt(2, 8,  "Balance:        " .. formatCurrency(bal) .. " LC",          balFg)
   if m.balanced then
-    local stateLabel, stateColor = "Idle", colors.gray
-    if     m.pState == "buying"    then stateLabel, stateColor = "Buying",    colors.cyan
-    elseif m.pState == "selling"   then stateLabel, stateColor = "Selling",   colors.lime
-    elseif m.pState == "suspended" then stateLabel, stateColor = "Suspended", colors.red
-    end
+    local stateLabel, stateColor = meterStatus(m)
     writeAt(2, 9,  "P2P status:     " .. stateLabel,                              stateColor)
     writeAt(2, 10, "Buffer:         " .. string.format("%.0f%%", m.bufferPct or 0) ..
                    "  (" .. formatFE(m.isProducer and (m.export or 0) or (m.draw or 0)) .. " FE/t)", colors.yellow)
@@ -685,10 +704,13 @@ local function drawCustomerScreen()
   end
 
   hline(statusRow)
-  if m.powerOn then
-    centreText(statusRow + 1, " POWER ON ",  colors.black, colors.lime)
-  else
-    centreText(statusRow + 1, " POWER OFF ", colors.white, colors.red)
+  do
+    local stLabel, stColor = meterStatus(m)
+    local stFg = colors.white
+    if stColor == colors.lime or stColor == colors.cyan or stColor == colors.lightGray then
+      stFg = colors.black
+    end
+    centreText(statusRow + 1, " " .. stLabel .. " ", stFg, stColor)
   end
   hline(statusRow + 2)
 
@@ -990,7 +1012,11 @@ local function mainLoop()
           end
           if was and was.powerOn and not msg.powerOn then
             addAlert("Power cut: "..(msg.player or id))
-            whisper(msg.player, "Your power supply has been cut. Please top up your balance to reconnect.")
+            if (msg.balance or 0) <= 0 then
+              whisper(msg.player, "Your power supply has been cut. Please top up your balance to reconnect.")
+            else
+              whisper(msg.player, "Your power supply has been switched off. Your balance is in good standing — press RESTORE on your meter any time to reconnect.")
+            end
           end
         end
 
