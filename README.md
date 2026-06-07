@@ -118,9 +118,9 @@ On first boot the meter walks a new customer through a 3-step setup:
   - Buffer ≥ **80%** → start **selling** surplus to the grid (earns at the producer rate, subject to `SET EXPORT CAP`)
   - Buffer ≤ **25%** → start **buying** to top up the buffer (charged at the standard rate, subject to the admin `SET CAP`)
   - Once trading starts it continues until the buffer returns to **60%**, then goes **idle** — this hysteresis prevents rapid flickering between states right at the trigger thresholds
-- **Suspended** when power is cut or the balance reaches zero — trading stops entirely until power is restored
+- **Suspended/Isolated** when power is cut — trading stops entirely until power is restored (see the unified status vocabulary below for how this is shown remotely)
 - Always billed **Pay As You Go** (dynamic buy/sell doesn't fit a periodic billing cycle)
-- Shows a live **Buffer** readout (combined charge %, energy, and capacity of all connected cubes) and a **Status** of Buying / Selling / Idle / Suspended on the meter, admin panel, and pocket computer
+- Shows a live **Buffer** readout (combined charge %, energy, and capacity of all connected cubes) and a live trading status on the meter, admin panel, and pocket computer
 
 ### On-Screen Information
 - Customer name, billing plan, connection type
@@ -146,6 +146,22 @@ On first boot the meter walks a new customer through a 3-step setup:
 
 ---
 
+## Status Vocabulary (Admin Panel & Pocket Monitor)
+
+The admin panel and pocket computer show every meter's live status using one unified, plain-text vocabulary — no brackets, no generic ON/OFF — regardless of whether it's a Consumer, Producer, or Balanced meter:
+
+| Status | Meaning |
+|---|---|
+| `BUY` | Powered on and currently buying/drawing power from the grid (Consumer, or a Balanced meter mid-buy) |
+| `SELL` | Powered on and currently selling/exporting power to the grid (Producer, or a Balanced meter mid-sell) |
+| `IDLE` | Powered on but not currently trading (Balanced meter sitting between buy/sell thresholds) |
+| `SUSPENDED` | Power is cut **and** the customer owes money (balance ≤ 0) — they can't restore it themselves until they top up |
+| `ISOLATED` | Power is cut but the customer is in good standing (balance > 0) — they cut it themselves (or it was cut on their behalf) and can simply press `RESTORE` any time, no payment needed |
+
+The meter's own on-screen display keeps its existing wording (`POWER ON`, `EXPORTING TO GRID`, `BUYING FROM GRID`, etc.), but uses the same SUSPENDED-vs-ISOLATED distinction under the hood — a customer who has cut their own power with a healthy balance is told to tap `RESTORE` to reconnect, not to top up.
+
+---
+
 ## Admin Panel Features
 
 All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypad — no physical keyboard required, consistent with the monitor's touch-driven interface.
@@ -153,8 +169,8 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 ### Dashboard
 - Live generation, total draw, and surplus for the whole network
 - **Company balance** — running total of all LC collected from consumers/buyers minus all LC paid out to producers/sellers (i.e. the operator's net profit, normally the 25% margin between the buy and sell rates)
-- Per-meter table: name, plan, balance, draw/export rate, cap, power status, type tag `[P]`/`[C]`/`[B]`
-- Balanced meters (`[B]`) show their live status — Buying / Selling / Idle / Suspended — and buffer % in place of a fixed plan/type
+- Per-meter table: name, plan, balance, draw/export rate, cap, live status (`BUY`/`SELL`/`IDLE`/`SUSPENDED`/`ISOLATED` — see [Status Vocabulary](#status-vocabulary-admin-panel--pocket-monitor)), and a type tag `[P]`/`[C]`/`[B]`
+- Balanced meters (`[B]`) show their buffer % in place of a fixed plan/type
 - Click any row to open the customer detail screen
 
 ### Customer Detail Screen
@@ -186,8 +202,8 @@ All numerical entry (`SET RATE`, `SET CAP`) is done via an on-screen touch keypa
 
 Runs on an Advanced Pocket Computer with an Ender Modem.
 
-- **List screen** — company balance (operator's net profit), all meters with online status and power state
-- **Detail screen** — balance, draw/export, plan, type, period cost, countdown
+- **List screen** — company balance (operator's net profit), all meters with online status and a live status indicator (`BUY`/`SELL`/`IDLE`/`SUSPENDED`/`ISOLATED` — see [Status Vocabulary](#status-vocabulary-admin-panel--pocket-monitor))
+- **Detail screen** — balance, draw/export, plan, type, period cost, countdown, and the same live status bar
 - Per-meter actions: CUT/RESTORE, +500 LC, +100 LC, SET CAP (keyboard entry), UPDATE METER, RENAME, CHG PLAN, CHANGE TYPE (Consumer/Producer/Balanced picker)
 - Global: CUT ALL, RESTORE ALL, UPD ALL
 - Alert log with count indicator
@@ -249,7 +265,7 @@ Commands can target a specific meter by `id` (computer ID) or use `"all"` to bro
 
 | File | Current Version |
 |---|---|
-| meter.lua | 3.15 |
-| admin.lua | 3.9 |
-| pocket.lua | 2.18 |
+| meter.lua | 3.16 |
+| admin.lua | 3.10 |
+| pocket.lua | 2.19 |
 | setup.lua | — |

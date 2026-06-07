@@ -9,7 +9,7 @@ local METER_TIMEOUT = 30
 local MAX_FLOW      = 2147483647
 
 -- ── Version ──────────────────────────────────────────────────
-local VERSION      = "2.18"
+local VERSION      = "2.19"
 local RAW_URL = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/pocket.lua"
 local UPDATE_EVERY = 300
 local updateAvail  = false
@@ -95,6 +95,30 @@ end
 
 local function fmtLC(n)
   return string.format("%.2f LC", n or 0)
+end
+
+-- Unified status vocabulary shown across the meter list, detail screen, and
+-- admin panel: BUY / SELL / IDLE / SUSPENDED / ISOLATED.
+-- SUSPENDED = power cut and the customer owes money (balance <= 0, can't
+-- self-restore). ISOLATED = customer cut their own power but is in good
+-- standing (balance > 0) and can simply press RESTORE themselves.
+local function meterStatus(m)
+  if not m.powerOn then
+    if (m.balance or 0) <= 0 then
+      return "SUSPENDED", colors.red
+    else
+      return "ISOLATED", colors.gray
+    end
+  elseif m.balanced then
+    if     m.pState == "buying"  then return "BUY",  colors.cyan
+    elseif m.pState == "selling" then return "SELL", colors.lime
+    else                              return "IDLE", colors.lightGray
+    end
+  elseif m.isProducer then
+    return "SELL", colors.lime
+  else
+    return "BUY", colors.cyan
+  end
 end
 
 local function sendCmd(id, cmd, val)
@@ -346,18 +370,9 @@ local function drawList()
       local m   = e.m
       local dot, dotFg
       if not e.online then
-        dot = " ?? "; dotFg = colors.gray
-      elseif m.balanced then
-        local labels = { buying = "BUY ", selling = "SELL", idle = "IDLE", suspended = "SUSP" }
-        dot   = labels[m.pState] or "BAL "
-        dotFg = (m.pState == "selling"   and colors.lime)
-             or (m.pState == "buying"    and colors.cyan)
-             or (m.pState == "suspended" and colors.red)
-             or colors.gray
-      elseif m.powerOn then
-        dot = " ON "; dotFg = colors.lime
+        dot = "??"; dotFg = colors.gray
       else
-        dot = "OFF "; dotFg = colors.red
+        dot, dotFg = meterStatus(m)
       end
 
       -- Low balance warning marker
@@ -366,7 +381,7 @@ local function drawList()
 
       at(1, rowY, string.rep(" ", W), colors.white, colors.black)
       at(1, rowY, (m.player or "Unknown"), nameFg, colors.black)
-      at(W - 3, rowY, dot, dotFg, colors.black)
+      at(W - 8, rowY, string.format("%9s", dot), dotFg, colors.black)
 
       local cid = e.id
       table.insert(btns, {x1=1, x2=W, y=rowY, fn=function()
@@ -462,11 +477,7 @@ local function drawDetail()
   at(10, 5, fmtLC(bal), balFg)
 
   if m.balanced then
-    local stateLabel, stateColor = "Idle", colors.gray
-    if     m.pState == "buying"    then stateLabel, stateColor = "Buying",    colors.cyan
-    elseif m.pState == "selling"   then stateLabel, stateColor = "Selling",   colors.lime
-    elseif m.pState == "suspended" then stateLabel, stateColor = "Suspended", colors.red
-    end
+    local stateLabel, stateColor = meterStatus(m)
     at(1, 6,  "P2P:     ", colors.gray)
     at(10, 6, stateLabel .. "  (" .. formatFE(m.isProducer and (m.export or 0) or (m.draw or 0)) .. " FE/t)", stateColor)
   elseif m.isProducer then
@@ -513,13 +524,15 @@ local function drawDetail()
 
   hline(10 + o)
 
-  -- Power status bar
-  if m.powerOn then
-    at(1, 11 + o, string.rep(" ", W), colors.black, colors.lime)
-    at(1, 11 + o, "  POWER ON", colors.black, colors.lime)
-  else
-    at(1, 11 + o, string.rep(" ", W), colors.white, colors.red)
-    at(1, 11 + o, "  POWER OFF", colors.white, colors.red)
+  -- Power status bar (unified BUY / SELL / IDLE / SUSPENDED / ISOLATED)
+  do
+    local stLabel, stColor = meterStatus(m)
+    local stFg = colors.white
+    if stColor == colors.lime or stColor == colors.cyan or stColor == colors.lightGray then
+      stFg = colors.black
+    end
+    at(1, 11 + o, string.rep(" ", W), stFg, stColor)
+    at(1, 11 + o, "  " .. stLabel, stFg, stColor)
   end
 
   hline(12 + o)

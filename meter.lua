@@ -1,5 +1,5 @@
 -- ============================================================
---  BeyondSMP Electric Meter v3.15
+--  BeyondSMP Electric Meter v3.16
 --  Peripherals:
 --    Import Detector = LEFT side  (grid → player, consumers)
 --    Export Detector = RIGHT side (player → grid, producers)
@@ -13,7 +13,7 @@
 -- ============================================================
 
 -- ── Version & update ─────────────────────────────────────────
-local VERSION      = "3.15"
+local VERSION      = "3.16"
 local RAW_URL      = "https://raw.githubusercontent.com/djbigmac9/CC-Power-Meter/main/meter.lua"
 local UPDATE_EVERY = 300
 
@@ -1016,9 +1016,12 @@ local function drawMeterScreen(importRate, exportRate)
     elseif data.balance < 0 then
       writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.red)
       centreText(statusRow, " \4 POWER OFF - DEBT MUST BE CLEARED ", colors.white, colors.red)
-    else
+    elseif data.balance == 0 then
       writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.red)
       centreText(statusRow, " \4 POWER OFF - TOP UP TO RECONNECT ", colors.white, colors.red)
+    else
+      writeAt(1, statusRow, string.rep(" ", W), colors.white, colors.gray)
+      centreText(statusRow, " \4 POWER OFF - TAP RESTORE TO RECONNECT ", colors.white, colors.gray)
     end
     if data.balance < 0 then
       writeAt(1, warnRow, string.rep(" ", W), colors.black, colors.red)
